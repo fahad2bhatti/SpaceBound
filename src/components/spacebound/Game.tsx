@@ -6,6 +6,7 @@ import {
   Info,
   Map as MapIcon,
   Navigation,
+  Pause as PauseIcon,
   Play,
   Rocket,
   RotateCcw,
@@ -37,6 +38,10 @@ import {
   type Upgrade,
 } from "@/game/catalog";
 import { Spacebound, type Snap } from "@/game/engine";
+import { placeWaypoint } from "@/game/waypoint";
+// phone-fix-map-v1
+import { App as CapApp } from "@capacitor/app";
+// phone-fix-menu-v1
 
 function Cmd({
   children,
@@ -109,6 +114,30 @@ export function Game() {
     };
   }, []);
 
+  useEffect(() => {
+    let handle: { remove: () => void } | undefined;
+    let cancelled = false;
+    CapApp.addListener("backButton", () => {
+      const e = engineRef.current;
+      if (!e) return;
+      const s = e.getSnap();
+      if (s.screen === "menu" && !s.modal && !s.confirmNew) {
+        CapApp.exitApp().catch(() => {});
+      } else {
+        e.escape();
+      }
+    })
+      .then((h) => {
+        if (cancelled) h.remove();
+        else handle = h;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      handle?.remove();
+    };
+  }, []);
+
   const engine = engineRef.current;
   const snap = live && engine ? engine.getSnap() : null;
   void rev;
@@ -174,6 +203,34 @@ export function Game() {
           <div className="absolute inset-0 bg-fg" style={{ opacity: Math.min(0.65, snap.flash) }} />
         )}
         {snap && touchUi && snap.screen === "play" && !snap.modal && <Touch snap={snap} act={act} />}
+        {snap && touchUi && snap.screen === "play" && !snap.modal && (
+          <div className="absolute right-4 top-28 flex flex-col gap-3">
+            <button
+              type="button"
+              aria-label="Pause menu"
+              className="pointer-events-auto flex min-h-14 min-w-14 touch-none select-none items-center justify-center rounded-xl border border-line bg-bg/80 px-4 active:bg-primary/30"
+              onClick={() => act((e) => e.escape())}
+            >
+              <PauseIcon className="size-6" />
+            </button>
+            <button
+              type="button"
+              aria-label="Map"
+              className="pointer-events-auto flex min-h-14 min-w-14 touch-none select-none items-center justify-center rounded-xl border border-line bg-bg/80 px-4 active:bg-primary/30"
+              onClick={() =>
+                act((e) => {
+                  e.pause();
+                  e.open("solar");
+                })
+              }
+            >
+              <MapIcon className="size-6" />
+            </button>
+          </div>
+        )}
+        {snap && snap.screen === "play" && snap.phase === "flight" && !snap.modal && (
+          <Waypoint engineRef={engineRef} name={DESTS[snap.destination].name} />
+        )}
       </div>
     </main>
   );
@@ -724,7 +781,7 @@ function Touch({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-4 pb-24">
       <Stick onChange={setStick} />
-      <div className="pointer-events-auto grid grid-cols-2 gap-2">
+      <div className="pointer-events-auto grid grid-cols-2 gap-3">
         <TouchBtn label="E" onDown={() => act((e) => e.input.pulseInteract())} />
         <TouchBtn label="C" onDown={() => act((e) => e.input.pulseCam())} />
         {flight ? (
@@ -776,7 +833,7 @@ function Stick({ onChange }: { onChange: (x: number, y: number) => void }) {
   return (
     <div
       ref={ref}
-      className="pointer-events-auto relative h-28 w-28 touch-none select-none rounded-full border border-line bg-bg/70"
+      className="pointer-events-auto relative h-36 w-36 touch-none select-none rounded-full border border-line bg-bg/70"
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         if (activeId.current !== null) return;
@@ -793,10 +850,10 @@ function Stick({ onChange }: { onChange: (x: number, y: number) => void }) {
       onLostPointerCapture={release}
     >
       <span
-        className="pointer-events-none absolute left-1/2 top-1/2 h-11 w-11 rounded-full bg-primary"
+        className="pointer-events-none absolute left-1/2 top-1/2 h-14 w-14 rounded-full bg-primary"
         style={{
           transform:
-            "translate(calc(-50% + " + knob.x * 28 + "px), calc(-50% + " + -knob.y * 28 + "px))",
+            "translate(calc(-50% + " + knob.x * 36 + "px), calc(-50% + " + -knob.y * 36 + "px))",
         }}
       />
     </div>
@@ -820,7 +877,7 @@ function TouchBtn({
   return (
     <button
       type="button"
-      className="min-h-11 min-w-11 touch-none select-none border border-line bg-bg/80 px-3 font-display text-sm uppercase"
+      className="min-h-16 min-w-16 touch-none select-none rounded-xl border border-line bg-bg/80 px-4 font-display text-lg uppercase active:bg-primary/30"
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         e.preventDefault();
@@ -833,5 +890,46 @@ function TouchBtn({
     >
       {label}
     </button>
+  );
+}
+
+function Waypoint({ engineRef, name }: { engineRef: React.RefObject<Spacebound | null>; name: string }) {
+  const box = useRef<HTMLDivElement>(null);
+  const arrow = useRef<HTMLSpanElement>(null);
+  const ring = useRef<HTMLSpanElement>(null);
+  const label = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    let raf = 0;
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      const el = box.current;
+      const e = engineRef.current;
+      if (!el || !e) return;
+      const p = e.projectTarget();
+      if (!p) {
+        el.style.opacity = "0";
+        return;
+      }
+      const pos = placeWaypoint(p, window.innerWidth, window.innerHeight);
+      el.style.opacity = "1";
+      el.style.transform = "translate(" + Math.round(pos.x) + "px, " + Math.round(pos.y) + "px)";
+      if (arrow.current) {
+        arrow.current.style.display = pos.off ? "block" : "none";
+        arrow.current.style.transform = "rotate(" + Math.round(pos.angle) + "deg)";
+      }
+      if (ring.current) ring.current.style.display = pos.off ? "none" : "block";
+      if (label.current) label.current.textContent = name.toUpperCase() + " · " + Math.round(p.dist) + " su";
+    };
+    loop();
+    return () => cancelAnimationFrame(raf);
+  }, [engineRef, name]);
+  return (
+    <div ref={box} className="pointer-events-none absolute left-0 top-0 z-10 opacity-0">
+      <div className="flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1">
+        <span ref={arrow} className="block text-3xl leading-none text-accent">▲</span>
+        <span ref={ring} className="block size-9 rotate-45 border-2 border-accent" />
+        <span ref={label} className="whitespace-nowrap border border-line bg-bg/80 px-2 py-0.5 font-display text-sm tracking-widest text-accent" />
+      </div>
+    </div>
   );
 }

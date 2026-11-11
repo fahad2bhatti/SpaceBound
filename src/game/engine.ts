@@ -868,6 +868,11 @@ export class Spacebound {
     if (pulses.launch) this.requestLaunch();
   }
 
+  // phone-fix-escape-v1
+  escape(): void {
+    this.onEsc();
+  }
+
   private onEsc(): void {
     if (this.modalQ.length) {
       this.ackModal();
@@ -1259,11 +1264,13 @@ export class Spacebound {
       steer += THREE.MathUtils.clamp(-this.clockMouse.x * this.save.settings.sens * 0.35, -1, 1);
       pitch += THREE.MathUtils.clamp(-this.clockMouse.y * this.save.settings.sens * 0.35, -1, 1);
     }
-    // Chase cam sits behind local +Z. rotateY(+) swings the nose to screen-right, so A (+steer) uses rotateY(-).
-    rig.group.rotateY(-steer * 0.95 * dt);
+    // steer-fix-v1
+    // Ship nose is local +Z and the chase cam sits behind it, so rotateY(+) swings the nose to screen-LEFT.
+    // A / ArrowLeft (+steer) therefore uses rotateY(+).
+    rig.group.rotateY(steer * 0.95 * dt);
     // rotateX(+) swings the nose down, so ArrowUp (+pitch) uses rotateX(-).
     rig.group.rotateX(-pitch * 0.7 * dt);
-    const targetBank = steer * 0.45;
+    const targetBank = -steer * 0.45; // rotateZ(+) banks right, so a left turn needs a negative bank
     const bankDelta = (targetBank - this.bank) * Math.min(1, dt * 4);
     this.bank += bankDelta;
     rig.group.rotateZ(bankDelta);
@@ -1632,6 +1639,16 @@ export class Spacebound {
     const horiz = this.v4.copy(this.flightV).addScaledVector(up, -climb).length();
     const inside = this.zoneArc(id) < (id === "earth" ? 4.4 : 2.8);
     return inside && descent < 6 && descent > -2 && horiz < 4.8;
+  }
+
+  // phone-fix-waypoint-v1
+  projectTarget(): { x: number; y: number; cx: number; cy: number; behind: boolean; dist: number } | null {
+    if (this.screen !== "play" || this.phase !== "flight") return null;
+    const target = this.targetPoint(new THREE.Vector3());
+    const dist = this.pos().distanceTo(target);
+    const cam = target.clone().applyMatrix4(this.camera.matrixWorldInverse);
+    const ndc = target.clone().project(this.camera);
+    return { x: ndc.x, y: ndc.y, cx: cam.x, cy: cam.y, behind: cam.z > 0, dist };
   }
 
   private targetPoint(out: THREE.Vector3): THREE.Vector3 {

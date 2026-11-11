@@ -745,38 +745,59 @@ function Touch({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
   );
 }
 
+// joystick-fix-v1
 function Stick({ onChange }: { onChange: (x: number, y: number) => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  const activeId = useRef<number | null>(null);
   const [knob, setKnob] = useState({ x: 0, y: 0 });
   const emit = (clientX: number, clientY: number) => {
     const el = ref.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const x = Math.max(-1, Math.min(1, ((clientX - r.left) / r.width) * 2 - 1));
-    const y = Math.max(-1, Math.min(1, -(((clientY - r.top) / r.height) * 2 - 1)));
-    setKnob({ x, y });
-    onChange(x, y);
+    let dx = (clientX - (r.left + r.width / 2)) / (r.width / 2);
+    let dy = -(clientY - (r.top + r.height / 2)) / (r.height / 2);
+    const len = Math.hypot(dx, dy);
+    if (len > 1) {
+      dx /= len;
+      dy /= len;
+    }
+    setKnob({ x: dx, y: dy });
+    onChange(dx, dy);
+  };
+  const release = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (activeId.current !== e.pointerId) return;
+    activeId.current = null;
+    setKnob({ x: 0, y: 0 });
+    onChange(0, 0);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
   };
   return (
     <div
       ref={ref}
-      className="pointer-events-auto relative h-28 w-28 rounded-full border border-line bg-bg/70"
+      className="pointer-events-auto relative h-28 w-28 touch-none select-none rounded-full border border-line bg-bg/70"
+      onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
+        if (activeId.current !== null) return;
+        e.preventDefault();
+        activeId.current = e.pointerId;
         e.currentTarget.setPointerCapture(e.pointerId);
         emit(e.clientX, e.clientY);
       }}
       onPointerMove={(e) => {
-        if (e.currentTarget.hasPointerCapture(e.pointerId)) emit(e.clientX, e.clientY);
+        if (activeId.current === e.pointerId) emit(e.clientX, e.clientY);
       }}
-      onPointerUp={(e) => {
-        setKnob({ x: 0, y: 0 });
-        onChange(0, 0);
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      }}
+      onPointerUp={release}
+      onPointerCancel={release}
+      onLostPointerCapture={release}
     >
       <span
-        className="absolute left-1/2 top-1/2 h-11 w-11 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary"
-        style={{ transform: `translate(calc(-50% + ${knob.x * 28}px), calc(-50% + ${-knob.y * 28}px))` }}
+        className="pointer-events-none absolute left-1/2 top-1/2 h-11 w-11 rounded-full bg-primary"
+        style={{
+          transform:
+            "translate(calc(-50% + " + knob.x * 28 + "px), calc(-50% + " + -knob.y * 28 + "px))",
+        }}
       />
     </div>
   );
@@ -793,20 +814,22 @@ function TouchBtn({
   hold?: boolean;
   onHold?: (down: boolean) => void;
 }) {
+  const end = () => {
+    if (hold) onHold?.(false);
+  };
   return (
     <button
       type="button"
-      className="min-h-11 min-w-11 border border-line bg-bg/80 px-3 font-display text-sm uppercase"
-      onPointerDown={() => {
+      className="min-h-11 min-w-11 touch-none select-none border border-line bg-bg/80 px-3 font-display text-sm uppercase"
+      onContextMenu={(e) => e.preventDefault()}
+      onPointerDown={(e) => {
+        e.preventDefault();
         onDown?.();
         if (hold) onHold?.(true);
       }}
-      onPointerUp={() => {
-        if (hold) onHold?.(false);
-      }}
-      onPointerLeave={() => {
-        if (hold) onHold?.(false);
-      }}
+      onPointerUp={end}
+      onPointerCancel={end}
+      onPointerLeave={end}
     >
       {label}
     </button>

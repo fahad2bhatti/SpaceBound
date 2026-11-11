@@ -1,0 +1,7 @@
+{
+  "appId": "com.fahadapps.spacebound",
+  "appName": "SpaceBound",
+  "webDir": "dist",
+  "backgroundColor": "#07090d",
+  "android": { "allowMixedContent": false }
+}

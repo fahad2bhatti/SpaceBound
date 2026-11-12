@@ -21,6 +21,58 @@ export class Input {
   private dragY = 0;
   private onPointerMove: (e: PointerEvent) => void;
   private activePointer = -1;
+  // free-cam-v1: separate look channel. Touch: 1 finger on the canvas = orbit, 2 fingers = pinch zoom.
+  // Mouse: right button drag = orbit (left click still locks the pointer for steering), wheel = zoom.
+  // The on-screen stick and buttons are DOM elements with their own pointer capture, so they never reach these.
+  private lookDX = 0;
+  private lookDY = 0;
+  private lookZoom = 0;
+  private lookRight = false;
+  private lookPinch = 0;
+  private lookTouches = new Map<number, { x: number; y: number }>();
+  private pinchDist(): number {
+    const p = [...this.lookTouches.values()];
+    return p.length < 2 ? 0 : Math.hypot(p[0]!.x - p[1]!.x, p[0]!.y - p[1]!.y);
+  }
+  private onLookDown = (e: PointerEvent): void => {
+    if (e.pointerType === "mouse") {
+      if (e.button === 2) this.lookRight = true;
+      return;
+    }
+    this.lookTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this.lookTouches.size === 2) this.lookPinch = this.pinchDist();
+  };
+  private onLookMove = (e: PointerEvent): void => {
+    if (e.pointerType === "mouse") {
+      if (this.lookRight) {
+        this.lookDX += e.movementX;
+        this.lookDY += e.movementY;
+      }
+      return;
+    }
+    const t = this.lookTouches.get(e.pointerId);
+    if (!t) return;
+    const dx = e.clientX - t.x;
+    const dy = e.clientY - t.y;
+    t.x = e.clientX;
+    t.y = e.clientY;
+    if (this.lookTouches.size === 1) {
+      this.lookDX += dx;
+      this.lookDY += dy;
+    } else {
+      const d = this.pinchDist();
+      this.lookZoom += d - this.lookPinch;
+      this.lookPinch = d;
+    }
+  };
+  private onLookUp = (e: PointerEvent): void => {
+    if (e.pointerType === "mouse") {
+      if (e.button === 2) this.lookRight = false;
+      return;
+    }
+    this.lookTouches.delete(e.pointerId);
+    if (this.lookTouches.size === 2) this.lookPinch = this.pinchDist();
+  };
   click: { x: number; y: number } | null = null;
   touch: TouchState = {
     x: 0,
@@ -66,7 +118,7 @@ export class Input {
       this.pointerLocked = document.pointerLockElement === this.canvas;
     };
     this.onMove = (e) => {
-      if (document.pointerLockElement === this.canvas) {
+      if (document.pointerLockElement === this.canvas && !this.lookRight) {
         this.dx += e.movementX;
         this.dy += e.movementY;
       }
@@ -110,6 +162,10 @@ export class Input {
     canvas.addEventListener("wheel", this.onWheel, { passive: false });
     canvas.addEventListener("contextmenu", this.onContext);
     canvas.addEventListener("pointermove", this.onPointerMove);
+    canvas.addEventListener("pointerdown", this.onLookDown);
+    canvas.addEventListener("pointermove", this.onLookMove);
+    window.addEventListener("pointerup", this.onLookUp);
+    window.addEventListener("pointercancel", this.onLookUp);
   }
 
   detach(): void {
@@ -124,6 +180,10 @@ export class Input {
     this.canvas?.removeEventListener("wheel", this.onWheel);
     this.canvas?.removeEventListener("contextmenu", this.onContext);
     this.canvas?.removeEventListener("pointermove", this.onPointerMove);
+    this.canvas?.removeEventListener("pointerdown", this.onLookDown);
+    this.canvas?.removeEventListener("pointermove", this.onLookMove);
+    window.removeEventListener("pointerup", this.onLookUp);
+    window.removeEventListener("pointercancel", this.onLookUp);
   }
 
   held(code: string): boolean {
@@ -179,6 +239,15 @@ export class Input {
     this.dragX = 0;
     this.dragY = 0;
     return d;
+  }
+
+  /** free-cam-v1: look drag (px), pinch (px, + = fingers apart) and whether a look pointer is down. */
+  consumeLook(): { dx: number; dy: number; zoom: number; active: boolean } {
+    const r = { dx: this.lookDX, dy: this.lookDY, zoom: this.lookZoom, active: this.lookRight || this.lookTouches.size > 0 };
+    this.lookDX = 0;
+    this.lookDY = 0;
+    this.lookZoom = 0;
+    return r;
   }
 
   consumeClick(): { x: number; y: number } | null {

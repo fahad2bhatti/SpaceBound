@@ -94,6 +94,20 @@ export class AudioBus {
     this.applyGains();
   }
 
+  // planet-zones-v1: atmosphere hum (drone detunes with depth) and scanner ping.
+  setAtmo(amount: number): void {
+    if (!this.ctx || !this.droneA || !this.droneB || !this.unlocked) return;
+    const a = Math.max(0, Math.min(1, amount));
+    const t = this.ctx.currentTime;
+    this.droneA.detune.setTargetAtTime(-a * 380, t, 0.4);
+    this.droneB.detune.setTargetAtTime(a * 220, t, 0.4);
+  }
+
+  scan(): void {
+    this.beep(1320, 0.08, "sine", 0.05);
+    setTimeout(() => this.beep(1760, 0.12, "sine", 0.045), 90);
+  }
+
   setThrottle(amount: number): void {
     if (!this.ctx || !this.rumble || !this.osc || !this.unlocked) return;
     const a = this.muted ? 0 : Math.max(0, Math.min(1, amount));

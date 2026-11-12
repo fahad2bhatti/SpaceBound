@@ -37,6 +37,7 @@ import {
 } from "./models";
 import { haptic, setHapticsEnabled } from "./haptics";
 import { gradeLanding } from "./landing";
+import { KIND_LABEL, PLANETS, ZONE_COLORS, type ZoneDef, type ZoneKind } from "./planets";
 import { defaultSave, loadSave, writeSave, type Quality, type SaveData, type Settings } from "./save";
 
 export type Screen = "menu" | "garage" | "missions" | "solar" | "settings" | "credits" | "play" | "pause";
@@ -98,15 +99,28 @@ export type Snap = {
   docked: boolean;
   refuelPrice: number;
   body: BodyId;
+  freeCam: boolean;
+  atmo: { name: string; label: string; depth: number; tint: string } | null;
+  zones: {
+    found: number;
+    total: number;
+    scanIn: number;
+    target: { name: string; kind: ZoneKind; dist: number; angle: number; near: boolean; inside: boolean } | null;
+  } | null;
 };
+
+type LandingZone = { i: number; z: ZoneDef; arc: number; inside: boolean };
 
 const PAD = new THREE.Vector3(0.2, 0.38, 0.9).normalize();
 const FLIGHT_SCALE = 0.22;
 // Landing assist: active below this altitude while descending (see applyLandingAssist).
-const ASSIST_ALT = 22;
-const ASSIST_DESC_MIN = 2;
-const ASSIST_DRIFT_MIN = 2.5;
+const ASSIST_ALT = 45; // easy-flight-v1: assist ab pehle shuru hota hai
+const ASSIST_DESC_MIN = 1.8;
+const ASSIST_DRIFT_MIN = 2.2;
 const BODY_IDS: BodyId[] = ["earth", "moon", "mars", "jupiter", "saturn", "uranus", "neptune"];
+// upright-turn-v1: upright rocket = nose up (rotate -90deg about X); gravity turn tilts it about the WORLD X axis.
+const UPRIGHT_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+const WORLD_X = new THREE.Vector3(1, 0, 0);
 
 declare global {
   interface Window {
@@ -232,6 +246,27 @@ export class Spacebound {
   private v5 = new THREE.Vector3();
   private basis = new THREE.Matrix4();
   private assistActive = false;
+  private steerSm = 0; // easy-flight-v1
+  private pitchSm = 0;
+  // free-cam-v1
+  private fcYaw = 0;
+  private fcPitch = 0;
+  private fcZoom = 1;
+  private fcHold = 0;
+  private look = { dx: 0, dy: 0, zoom: 0, active: false };
+  private frameWheel = 0;
+  // planet-zones-v1
+  private zoneNs = new Map<BodyId, THREE.Vector3[]>();
+  private zoneRings: { body: BodyId; idx: number; mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial }[] = [];
+  private zA = new THREE.Vector3();
+  private zB = new THREE.Vector3();
+  private atmoBody: BodyId | null = null;
+  private atmoDepth = 0;
+  private atmoAud = 0;
+  private scanT = 2;
+  private scanCool = 0;
+  private landedZone = 0;
+  private prevR = false;
   private aUp = new THREE.Vector3();
   private aFwd = new THREE.Vector3();
   private aSide = new THREE.Vector3();
@@ -389,6 +424,20 @@ export class Spacebound {
       docked,
       refuelPrice: refuelCost(missing, this.phase.startsWith("surface")),
       body: this.phase.startsWith("surface") ? this.surfaceBody : this.dominant(),
+      freeCam:
+        this.phase === "flight" &&
+        this.camMode === "chase" &&
+        (this.look.active || Math.abs(this.fcYaw) + Math.abs(this.fcPitch) + Math.abs(this.fcZoom - 1) > 0.05),
+      atmo:
+        this.phase === "flight" && this.atmoBody
+          ? {
+              name: BODIES[this.atmoBody].name,
+              label: PLANETS[this.atmoBody].label,
+              depth: this.atmoDepth,
+              tint: PLANETS[this.atmoBody].tint,
+            }
+          : null,
+      zones: this.zoneSnap(),
     };
   }
 
@@ -440,6 +489,7 @@ export class Spacebound {
       this.life = resume.life;
       this.ox = resume.ox;
       this.enterSurface(resume.body, false);
+      this.landedZone = resume.zi ?? 0;
       this.walker.x = resume.wx;
       this.walker.z = resume.wz;
       this.walker.yaw = resume.yaw;
@@ -886,6 +936,14 @@ export class Spacebound {
     const drag = this.input.consumeDrag();
     const wheel = this.input.consumeWheel();
     this.handleEdges(pulses);
+    this.look = this.input.consumeLook(); // free-cam-v1: consumed every frame so nothing piles up
+    this.frameWheel = wheel;
+    if (this.phase !== "flight" && this.atmoBody) {
+      this.atmoBody = null;
+      this.atmoDepth = 0;
+      this.atmoAud = 0;
+      this.audio.setAtmo(0);
+    }
 
     if (this.view === "solar" && click) this.pickSolar(click);
     else if (click && this.screen === "play" && this.modalQ.length === 0) this.input.requestLock();
@@ -915,6 +973,9 @@ export class Spacebound {
     const v = this.input.held("KeyV");
     if (v && !this.prevV && this.phase === "flight") this.levelShip(false);
     this.prevV = v;
+    const rk = this.input.held("KeyR");
+    if (rk && !this.prevR) this.scanNow();
+    this.prevR = rk;
     const esc = this.input.held("Escape");
     if (esc && !this.prevEsc) this.onEsc();
     this.prevEsc = esc;
@@ -1240,19 +1301,24 @@ export class Spacebound {
     const surface = this.phase === "surfaceLiftoff";
     const rig = surface ? this.surfaceRig : this.padRig;
     if (!rig) return;
-    this.liftV += (surface ? 6 : 9) * dt;
+    const upright = !surface && !!rig.group.userData.upright;
+    this.liftV += (surface ? 6 : upright ? 7 + this.liftY * 0.18 : 9) * dt;
     this.liftY += this.liftV * dt;
     const base = this.baseY.get(rig) ?? rig.group.position.y;
     rig.group.position.y = base + this.liftY;
+    // upright-turn-v1: old code spun the rocket around its own nose axis. Now: slow gravity turn away from the camera.
+    if (upright) rig.group.quaternion.setFromAxisAngle(WORLD_X, -Math.min(0.5, this.liftY * 0.004)).multiply(UPRIGHT_Q);
     this.glow(rig, 1);
-    this.burst(rig, 16);
+    this.burst(rig, upright ? 28 : 16);
     this.audio.setThrottle(1);
     if (!this.reduce) this.trauma = Math.min(1, this.trauma + dt);
-    const back = this.v4.set(rig.group.position.x + 8, rig.group.position.y + 4, rig.group.position.z + 10);
+    const back = upright
+        ? this.v4.set(rig.group.position.x + 16, 3.5 + Math.min(this.liftY * 0.15, 18), rig.group.position.z + 20)
+        : this.v4.set(rig.group.position.x + 8, rig.group.position.y + 4, rig.group.position.z + 10);
     this.camera.position.lerp(back, 1 - Math.exp(-3 * dt));
     this.camera.lookAt(rig.group.position);
     this.applyShake();
-    if (this.liftY > (surface ? 28 : 36)) {
+    if (this.liftY > (surface ? 28 : upright ? 130 : 36)) {
       if (surface) this.enterFlightFrom(this.surfaceBody);
       else this.enterFlightFrom("earth");
     }
@@ -1266,7 +1332,7 @@ export class Spacebound {
     if (body === "mars") this.save.flags.returning = true;
     const rig = this.ensureFlightRig();
     const origin = this.bodyPos.get(body)!;
-    const n = this.zoneNormal(body, this.v2);
+    const n = this.zoneNormalAt(body, body === "earth" ? 0 : this.landedZone, this.v2);
     this.pos().copy(origin).addScaledVector(n, BODIES[body].radius + 2.4);
     this.flightVel().copy(n).multiplyScalar(body === "earth" ? 5.2 : 3.2);
     this.orientShip(n, Math.abs(n.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0));
@@ -1298,6 +1364,8 @@ export class Spacebound {
   private updateFlight(dt: number): void {
     const rig = this.ensureFlightRig();
     this.sinceLaunch += dt;
+    const bodyE = this.dominant();
+    const altE = this.flightPos.distanceTo(this.bodyPos.get(bodyE)!) - BODIES[bodyE].radius;
     let steer = 0;
     let pitch = 0;
     if (this.input.steerOverride !== null) steer = this.input.steerOverride;
@@ -1320,18 +1388,24 @@ export class Spacebound {
     // steer-fix-v1
     // Ship nose is local +Z and the chase cam sits behind it, so rotateY(+) swings the nose to screen-LEFT.
     // A / ArrowLeft (+steer) therefore uses rotateY(+).
-    rig.group.rotateY(steer * 0.95 * dt);
+    // easy-flight-v1: input smooth ramp hota hai (jhatka nahi), chhodte hi jaldi wapas, zameen ke paas turn dheema (precision).
+    const kIn = Math.min(1, dt * 7);
+    const kOut = Math.min(1, dt * 11);
+    this.steerSm += (steer - this.steerSm) * (Math.abs(steer) > Math.abs(this.steerSm) ? kIn : kOut);
+    this.pitchSm += (pitch - this.pitchSm) * (Math.abs(pitch) > Math.abs(this.pitchSm) ? kIn : kOut);
+    const prec = THREE.MathUtils.clamp(0.55 + altE / 60, 0.55, 1);
+    rig.group.rotateY(this.steerSm * 0.95 * prec * dt);
     // rotateX(+) swings the nose down, so ArrowUp (+pitch) uses rotateX(-).
-    rig.group.rotateX(-pitch * 0.7 * dt);
-    const targetBank = -steer * 0.45; // rotateZ(+) banks right, so a left turn needs a negative bank
+    rig.group.rotateX(-this.pitchSm * 0.7 * prec * dt);
+    const targetBank = -this.steerSm * 0.45; // rotateZ(+) banks right, so a left turn needs a negative bank
     const bankDelta = (targetBank - this.bank) * Math.min(1, dt * 4);
     this.bank += bankDelta;
     rig.group.rotateZ(bankDelta);
 
     if (this.input.held("KeyW") || (this.input.override === null && this.input.touch.y > 0.3))
-      this.throttle = Math.min(1, this.throttle + dt * 0.42);
+      this.throttle = Math.min(1, this.throttle + dt * 0.9);
     if (this.input.held("KeyS") || (this.input.override === null && this.input.touch.y < -0.3))
-      this.throttle = Math.max(0, this.throttle - dt * 0.6);
+      this.throttle = Math.max(0, this.throttle - dt * 1.6);
 
     const stats = this.stats();
     const locked = this.outOfRange();
@@ -1373,6 +1447,7 @@ export class Spacebound {
 
     const sp2 = this.flightV.length();
     if (sp2 > cap) this.flightV.multiplyScalar(Math.max(cap / sp2, 1 - dt * 0.85));
+    this.updateAtmosphere(dt, body, alt, cap);
     this.applyLandingAssist(dt, body, alt);
     this.flightPos.addScaledVector(this.flightV, dt);
     this.resolveGround(body);
@@ -1408,8 +1483,11 @@ export class Spacebound {
     if (climb > 0.5) return;
     this.assistActive = true;
 
+    // easy-flight-v1: throttle chhodo to ship khud dheere dheere ruk'ti hai (hath me feel).
+    if (this.throttle < 0.05) this.flightV.multiplyScalar(Math.max(0, 1 - 0.4 * dt));
+
     // Level the nose to the local horizon, stronger the closer we are to the ground.
-    const t = 1 - Math.exp(-3 * THREE.MathUtils.clamp((ASSIST_ALT - alt) / 12, 0, 1) * dt);
+    const t = 1 - Math.exp(-3 * THREE.MathUtils.clamp((ASSIST_ALT - alt) / 20, 0, 1) * dt);
     this.forward(rig, this.aFwd);
     this.aFwd.addScaledVector(up, -this.aFwd.dot(up));
     if (this.aFwd.lengthSq() > 0.01) {
@@ -1424,19 +1502,19 @@ export class Spacebound {
     // Cap descent and sideways speed as the ground gets closer. Braking burns a little fuel.
     const rate = Math.min(1, dt * 8);
     let braked = false;
-    const maxDesc = ASSIST_DESC_MIN + alt * 0.25;
+    const maxDesc = ASSIST_DESC_MIN + alt * 0.18;
     if (-climb > maxDesc) {
       this.flightV.addScaledVector(up, (-maxDesc - climb) * rate);
       braked = true;
     }
-    const maxDrift = ASSIST_DRIFT_MIN + alt * 0.2;
+    const maxDrift = ASSIST_DRIFT_MIN + alt * 0.16;
     const hv = this.aHoriz.copy(this.flightV).addScaledVector(up, -this.flightV.dot(up));
     const hs = hv.length();
     if (hs > maxDrift) {
       this.flightV.addScaledVector(hv, -(1 - maxDrift / hs) * rate);
       braked = true;
     }
-    if (braked) this.fuel = Math.max(0, this.fuel - this.stats().burn * 0.5 * dt);
+    if (braked) this.fuel = Math.max(0, this.fuel - this.stats().burn * 0.25 * dt);
   }
 
   private recordLanding(body: BodyId, descent: number, drift: number, fuelFrac: number): void {
@@ -1470,9 +1548,12 @@ export class Spacebound {
       this.toast(`${def.name} has no surface. Climb away from the clouds.`);
       return;
     }
-    const inside = this.zoneArc(body) < (body === "earth" ? 4.4 : 2.8);
+    const lz = this.landingZone(body, true);
+    const inside = !!lz && lz.inside;
+    const maxD = lz ? lz.z.maxDescent : 6;
+    const maxH = lz ? lz.z.maxDrift : 4.8;
     if (descent > 9 || horiz > 8) {
-      this.flightPos.copy(center).addScaledVector(this.zoneNormal(body, this.v2), def.radius + 14);
+      this.flightPos.copy(center).addScaledVector(lz ? this.zoneNormalAt(body, lz.i, this.v2) : this.zoneNormal(body, this.v2), def.radius + 14);
       this.flightV.copy(this.v2).multiplyScalar(2.2);
       this.orientShip(this.v2, new THREE.Vector3(0, 1, 0));
       this.fuel = Math.max(6, this.fuel - 10);
@@ -1482,7 +1563,7 @@ export class Spacebound {
       this.toast("Hard impact. Kill more speed before the beacon.");
       return;
     }
-    if (inside && descent < 6 && horiz < 4.8) {
+    if (inside && descent < maxD && horiz < maxH) {
       const fuelFrac = this.fuel / Math.max(1, this.stats().fuel);
       this.audio.thud();
       this.audio.setThrottle(0);
@@ -1505,14 +1586,23 @@ export class Spacebound {
         this.toast(`${def.name} touchdown. Egress when you're ready.`);
       }
       this.recordLanding(body, descent, horiz, fuelFrac);
+      this.onZoneLanded(lz);
       this.notifyNow = true;
       return;
     }
-    this.flightPos.copy(center).addScaledVector(up, def.radius + 1.05);
-    this.flightV.addScaledVector(up, descent + 1.5);
+    // bounce: back over the zone we were over when inside one, otherwise straight up from where we hit
+    const bn = inside && lz ? this.zoneNormalAt(body, lz.i, this.v3) : up;
+    this.flightPos.copy(center).addScaledVector(bn, def.radius + 1.05);
+    this.flightV.addScaledVector(bn, descent + 1.5);
     this.flightV.multiplyScalar(0.45);
     haptic.warn();
-    this.toast(inside ? "Too fast — hover and bleed speed." : "Outside the beacon pad.");
+    this.toast(
+      inside
+        ? "Too fast — hover and bleed speed."
+        : PLANETS[body].zones.length > 1
+          ? "Unsafe terrain. Land inside a marked zone. Press R to scan."
+          : "Outside the beacon pad.",
+    );
   }
 
   private trackMissions(dt: number): void {
@@ -1596,15 +1686,61 @@ export class Spacebound {
     }
     this.forward(rig, this.v1);
     const up = this.v2.set(0, 1, 0).applyQuaternion(rig.group.quaternion);
-    const dist = 7.5;
-    this.v4.copy(this.flightPos).addScaledVector(this.v1, -dist).addScaledVector(up, 2.1);
-    this.camera.position.lerp(this.v4, 1 - Math.exp(-4 * dt));
-    this.v5.copy(this.flightPos).addScaledVector(this.v1, 3);
+    // free-cam-v1: drag/swipe = orbit the ship, pinch/wheel = zoom, release = glide back to the chase view (~0.6s).
+    // Pure camera work: it never touches steering, throttle or the ship.
+    const set = this.save.settings;
+    const L = this.look;
+    const px = 0.0055 * (set.lookSens || 1);
+    if (L.dx || L.dy) {
+      this.fcYaw += L.dx * px;
+      this.fcPitch = THREE.MathUtils.clamp(this.fcPitch + L.dy * px, -0.62, 1.03);
+    }
+    if (L.zoom) this.fcZoom *= Math.exp(-L.zoom * 0.006);
+    if (this.frameWheel) this.fcZoom *= Math.exp(this.frameWheel * 0.0012);
+    this.fcZoom = THREE.MathUtils.clamp(this.fcZoom, 0.5, 2.4);
+    if (L.active) this.fcHold = 0;
+    else if (this.frameWheel) this.fcHold = 1.2;
+    else this.fcHold = Math.max(0, this.fcHold - dt);
+    if (!L.active && this.fcHold <= 0 && !set.camLock) {
+      this.fcYaw = THREE.MathUtils.euclideanModulo(this.fcYaw + Math.PI, Math.PI * 2) - Math.PI;
+      const k = 1 - Math.exp(-dt / 0.2);
+      this.fcYaw -= this.fcYaw * k;
+      this.fcPitch -= this.fcPitch * k;
+      this.fcZoom += (1 - this.fcZoom) * k;
+    }
+    const R0 = Math.hypot(7.5, 2.1) * this.fcZoom;
+    const pa = Math.atan2(2.1, 7.5) + this.fcPitch;
+    const cp = Math.cos(pa);
+    this.v4
+      .set(Math.sin(this.fcYaw) * cp * R0, Math.sin(pa) * R0, -Math.cos(this.fcYaw) * cp * R0)
+      .applyQuaternion(rig.group.quaternion)
+      .add(this.flightPos);
+    // keep the camera out of the ground / planet
+    const fb = this.dominant();
+    const fc = this.bodyPos.get(fb)!;
+    const minR = BODIES[fb].radius + 0.9;
+    this.v3.copy(this.v4).sub(fc);
+    const fl = this.v3.length();
+    if (fl < minR) this.v4.copy(fc).addScaledVector(this.v3, minR / Math.max(fl, 1e-4));
+    const off = Math.abs(this.fcYaw) + Math.abs(this.fcPitch) + Math.abs(this.fcZoom - 1) > 0.02;
+    const rate = L.active || this.fcHold > 0 || off ? 12 : 4;
+    this.camera.position.lerp(this.v4, 1 - Math.exp(-rate * dt));
+    const kf = THREE.MathUtils.clamp(Math.abs(this.fcYaw) / 0.7 + Math.abs(this.fcPitch) / 0.5, 0, 1);
+    this.v5.copy(this.flightPos).addScaledVector(this.v1, 3 * (1 - kf));
     this.camera.lookAt(this.v5);
   }
 
   private placeCockpitCamera(rig: ShipRig, dt: number, scale: number): void {
     rig.group.updateMatrixWorld(true);
+    if (rig.group.userData.upright) {
+      // launch cam: pad se thori door, ground level, rocket ki taraf
+      const p = rig.group.position;
+      this.v1.set(p.x + 12, 2.4, p.z + 15);
+      this.v2.set(p.x, p.y + 0.6, p.z);
+      this.camera.position.lerp(this.v1, 1 - Math.exp(-3 * dt));
+      this.camera.lookAt(this.v2);
+      return;
+    }
     this.v1.copy(rig.cockpitPos).multiplyScalar(scale).applyQuaternion(rig.group.quaternion).add(rig.group.position);
     this.v2.copy(rig.lookPos).multiplyScalar(scale).applyQuaternion(rig.group.quaternion).add(rig.group.position);
     this.v3.set(this.lookX, this.lookY, 0).applyQuaternion(rig.group.quaternion);
@@ -1735,6 +1871,254 @@ export class Spacebound {
     return out.copy(this.bodyPos.get(id)!).normalize().multiplyScalar(-1);
   }
 
+  // ---- planet-zones-v1 -------------------------------------------------------------
+  private zoneNormalAt(id: BodyId, i: number, out: THREE.Vector3): THREE.Vector3 {
+    const n = this.zoneNs.get(id)?.[i];
+    return n ? out.copy(n) : this.zoneNormal(id, out);
+  }
+
+  private buildZoneNormals(): void {
+    for (const id of BODY_IDS) {
+      const base = this.zoneNormal(id, new THREE.Vector3());
+      const rad = BODIES[id].radius;
+      const t1 = new THREE.Vector3().crossVectors(base, new THREE.Vector3(0, 1, 0));
+      if (t1.lengthSq() < 1e-4) t1.crossVectors(base, new THREE.Vector3(1, 0, 0));
+      t1.normalize();
+      const t2 = new THREE.Vector3().crossVectors(base, t1).normalize();
+      this.zoneNs.set(
+        id,
+        PLANETS[id].zones.map((z) => {
+          if (z.arc <= 0) return base.clone();
+          const a = z.arc / rad;
+          const az = THREE.MathUtils.degToRad(z.az);
+          const dir = t1.clone().multiplyScalar(Math.cos(az)).addScaledVector(t2, Math.sin(az));
+          return base.clone().multiplyScalar(Math.cos(a)).addScaledVector(dir, Math.sin(a)).normalize();
+        }),
+      );
+    }
+  }
+
+  /** Surface distance from the point under the ship to zone i. Uses its own scratch vectors. */
+  private zoneArcAt(body: BodyId, i: number): number {
+    this.zA.copy(this.flightPos).sub(this.bodyPos.get(body)!).normalize();
+    return this.zoneNormalAt(body, i, this.zB).angleTo(this.zA) * BODIES[body].radius;
+  }
+
+  private zoneFound(body: BodyId, i: number): boolean {
+    return i === 0 || this.save.zonesFound.includes(PLANETS[body].zones[i]!.id);
+  }
+
+  private landingZone(body: BodyId, assist: boolean): LandingZone | null {
+    const zones = PLANETS[body].zones;
+    if (!zones.length) return null;
+    const mul = assist && this.save.settings.assist ? 1.5 : 1;
+    let bi = 0;
+    let bm = Infinity;
+    let ba = 0;
+    for (let i = 0; i < zones.length; i++) {
+      const a = this.zoneArcAt(body, i);
+      const m = a - zones[i]!.radius;
+      if (m < bm) {
+        bm = m;
+        bi = i;
+        ba = a;
+      }
+    }
+    const z = zones[bi]!;
+    return { i: bi, z, arc: ba, inside: ba < z.radius * mul };
+  }
+
+  private onZoneLanded(lz: LandingZone | null): void {
+    if (!lz) return;
+    this.landedZone = lz.i;
+    const z = lz.z;
+    if (lz.i > 0 && !this.save.zonesFound.includes(z.id)) this.save.zonesFound.push(z.id);
+    if (z.reward > 0 && !this.save.zonesClaimed.includes(z.id)) {
+      this.save.zonesClaimed.push(z.id);
+      this.save.credits += z.reward;
+      this.modalQ.push({
+        kicker: KIND_LABEL[z.kind] + " ZONE",
+        title: z.name,
+        text:
+          z.kind === "bonus"
+            ? "Bonus landing zone secured. Survey teams pay extra for this one."
+            : "Hard landing zone cleared. The first touchdown here pays a bonus.",
+        reward: z.reward,
+      });
+    }
+    this.persist(true);
+  }
+
+  private updateAtmosphere(dt: number, body: BodyId, alt: number, cap: number): void {
+    const cfg = PLANETS[body];
+    const inNow = this.atmoBody === body ? alt < cfg.boundary * 1.05 : alt < cfg.boundary;
+    if (inNow) {
+      const depth = THREE.MathUtils.clamp(1 - alt / cfg.boundary, 0, 1);
+      this.atmoDepth += (depth - this.atmoDepth) * Math.min(1, dt * 3);
+      if (this.atmoBody !== body) {
+        this.atmoBody = body;
+        this.scanT = 1.2;
+        if (this.sinceLaunch > 2.5) {
+          this.toast("Entering " + BODIES[body].name + " " + cfg.label);
+          this.audio.ui();
+          haptic.tap();
+        }
+      }
+      // gentle slowdown inside the boundary (never below 70% of the normal cap, so leaving is always possible)
+      const lim = cap * (1 - 0.3 * this.atmoDepth);
+      const s = this.flightV.length();
+      if (s > lim) this.flightV.multiplyScalar(Math.max(lim / s, 1 - dt * 0.6));
+      if (Math.abs(this.atmoDepth - this.atmoAud) > 0.04) {
+        this.atmoAud = this.atmoDepth;
+        this.audio.setAtmo(this.atmoDepth);
+      }
+      if (cfg.zones.length > 1) {
+        this.scanT -= dt;
+        this.scanCool = Math.max(0, this.scanCool - dt);
+        if (this.scanT <= 0) {
+          this.scanT = cfg.scanEvery;
+          this.pingScanner(body, false);
+        }
+      }
+    } else if (this.atmoBody) {
+      if (this.sinceLaunch > 2.5) this.toast("Leaving " + BODIES[this.atmoBody].name + " " + PLANETS[this.atmoBody].label + ". Scanner offline.");
+      this.atmoBody = null;
+      this.atmoDepth = 0;
+      this.atmoAud = 0;
+      this.audio.setAtmo(0);
+    }
+    this.updateZoneRings(body);
+  }
+
+  /** Manual scanner ping (R key / SCAN button). */
+  scanNow(): void {
+    if (this.phase !== "flight") return;
+    const body = this.atmoBody;
+    if (!body || PLANETS[body].zones.length < 2) {
+      this.toast("Scanner needs a landable planet. Fly into its atmosphere.");
+      return;
+    }
+    if (this.scanCool > 0) return;
+    this.scanCool = 1.5;
+    this.scanT = PLANETS[body].scanEvery;
+    this.pingScanner(body, true);
+  }
+
+  private pingScanner(body: BodyId, manual: boolean): void {
+    const cfg = PLANETS[body];
+    const fresh: string[] = [];
+    cfg.zones.forEach((z, i) => {
+      if (this.zoneFound(body, i)) return;
+      if (this.zoneArcAt(body, i) <= cfg.scanRange) {
+        this.save.zonesFound.push(z.id);
+        fresh.push(z.name + " (" + KIND_LABEL[z.kind] + ")");
+      }
+    });
+    this.audio.scan();
+    if (fresh.length) {
+      this.toast("Landing zone found: " + fresh.join(", "));
+      haptic.success();
+      this.persist(true);
+    } else if (manual) this.toast("Scan complete. No new zones in range. Move over fresh ground.");
+    this.notifyNow = true;
+  }
+
+  private updateZoneRings(body: BodyId): void {
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.006);
+    for (const r of this.zoneRings) {
+      const zones = PLANETS[r.body].zones;
+      const show = r.body === body && zones.length > 1 && this.zoneFound(r.body, r.idx);
+      r.mesh.visible = show;
+      if (!show) continue;
+      const z = zones[r.idx]!;
+      const near = this.zoneArcAt(body, r.idx) < z.radius * 2.5;
+      r.mat.color.setHex(near ? 0x4ade80 : ZONE_COLORS[z.kind]);
+      r.mat.opacity = near ? 0.6 + 0.35 * pulse : 0.55;
+    }
+  }
+
+  private buildZoneRings(scene: THREE.Scene): void {
+    this.zoneRings = [];
+    for (const id of BODY_IDS) {
+      const def = BODIES[id];
+      PLANETS[id].zones.forEach((z, i) => {
+        if (PLANETS[id].zones.length < 2) return;
+        const mat = new THREE.MeshBasicMaterial({
+          color: ZONE_COLORS[z.kind],
+          transparent: true,
+          opacity: 0.55,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const mesh = new THREE.Mesh(this.sphereRing(def.radius + 0.12, z.radius, z.radius * 0.84), mat);
+        mesh.position.copy(this.bodyPos.get(id)!);
+        mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), this.zoneNs.get(id)![i]!);
+        mesh.visible = false;
+        scene.add(mesh);
+        this.zoneRings.push({ body: id, idx: i, mesh, mat });
+      });
+    }
+  }
+
+  /** Flat-looking ring that hugs the sphere (built around +Z, then rotated onto the zone normal). */
+  private sphereRing(rad: number, outer: number, inner: number): THREE.BufferGeometry {
+    const seg = 40;
+    const ao = outer / rad;
+    const ai = inner / rad;
+    const pos: number[] = [];
+    const idx: number[] = [];
+    for (let k = 0; k < seg; k++) {
+      const th = (k / seg) * Math.PI * 2;
+      const c = Math.cos(th);
+      const s = Math.sin(th);
+      pos.push(rad * Math.sin(ao) * c, rad * Math.sin(ao) * s, rad * Math.cos(ao));
+      pos.push(rad * Math.sin(ai) * c, rad * Math.sin(ai) * s, rad * Math.cos(ai));
+    }
+    for (let k = 0; k < seg; k++) {
+      const a = k * 2;
+      const b = ((k + 1) % seg) * 2;
+      idx.push(a, a + 1, b, b, a + 1, b + 1);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    return g;
+  }
+
+  private zoneSnap(): Snap["zones"] {
+    const body = this.atmoBody;
+    if (this.phase !== "flight" || !body) return null;
+    const zones = PLANETS[body].zones;
+    if (zones.length < 2) return null;
+    let found = 0;
+    let bi = -1;
+    let ba = Infinity;
+    for (let i = 0; i < zones.length; i++) {
+      if (!this.zoneFound(body, i)) continue;
+      found++;
+      const a = this.zoneArcAt(body, i);
+      if (a < ba) {
+        ba = a;
+        bi = i;
+      }
+    }
+    let target: NonNullable<Snap["zones"]>["target"] = null;
+    if (bi >= 0) {
+      const z = zones[bi]!;
+      const w = this.bodyPos.get(body)!.clone().addScaledVector(this.zoneNormalAt(body, bi, new THREE.Vector3()), BODIES[body].radius + 0.2);
+      const c = w.clone().applyMatrix4(this.camera.matrixWorldInverse);
+      target = {
+        name: z.name,
+        kind: z.kind,
+        dist: this.flightPos.distanceTo(w),
+        angle: Math.atan2(c.x, c.y),
+        near: ba < z.radius * 2.5,
+        inside: ba < z.radius,
+      };
+    }
+    return { found, total: zones.length, scanIn: Math.max(0, this.scanT), target };
+  }
+
   private zoneArc(id: BodyId): number {
     const up = this.outward(this.flightPos, id, this.v5);
     const n = this.zoneNormal(id, this.v4);
@@ -1751,8 +2135,9 @@ export class Spacebound {
     const up = this.outward(this.flightPos, id, this.v5);
     const climb = this.flightV.dot(up);
     const horiz = this.v4.copy(this.flightV).addScaledVector(up, -climb).length();
-    const inside = this.zoneArc(id) < (id === "earth" ? 4.4 : 2.8);
-    return inside && descent < 6 && descent > -2 && horiz < 4.8;
+    const lz = this.landingZone(id, false);
+    const inside = !!lz && lz.inside;
+    return inside && descent < (lz ? lz.z.maxDescent : 6) && descent > -2 && horiz < (lz ? lz.z.maxDrift : 4.8);
   }
 
   // phone-fix-waypoint-v1
@@ -1815,8 +2200,9 @@ export class Spacebound {
           ? this.surfaceRig
           : this.padRig;
     if (!rig) return;
-    for (const h of rig.hull) h.visible = !inside;
-    rig.interior.visible = inside;
+    const showInside = inside && !(rig === this.padRig && !!rig.group.userData.upright);
+    for (const h of rig.hull) h.visible = !showInside;
+    rig.interior.visible = showInside;
     this.astro.group.visible = this.phase === "pad" || this.phase === "surface";
   }
 
@@ -2117,6 +2503,7 @@ export class Spacebound {
       }
     }
     scene.add(this.heat);
+    this.buildZoneRings(scene);
     this.ensureFlightRig();
   }
 
@@ -2143,6 +2530,7 @@ export class Spacebound {
         this.beacons.set(id, this.bodyPos.get(id)!.clone().addScaledVector(n, def.radius + 0.2));
       }
     }
+    this.buildZoneNormals();
   }
 
   private mountMenuShip(): void {
@@ -2171,7 +2559,7 @@ export class Spacebound {
       this.disposeObject(this.padRig.group);
     }
     this.padRig = buildShip(this.save.selected, this.assets);
-    this.seat(this.padRig, 0, 0, 0);
+    this.seat(this.padRig, 0, 0, 1.05, this.save.selected !== "lunar");
     this.padScene.add(this.padRig.group);
     this.baseY.set(this.padRig, this.padRig.group.position.y);
   }
@@ -2190,17 +2578,21 @@ export class Spacebound {
     return this.flightRig;
   }
 
-  private seat(rig: ShipRig, x: number, z: number, ground: number): void {
+  private seat(rig: ShipRig, x: number, z: number, ground: number, upright = false): void {
+    // upright-launch-v1
     rig.group.scale.setScalar(1);
-    rig.group.rotation.set(0, 0, 0);
+    rig.group.rotation.set(upright ? -Math.PI / 2 : 0, 0, 0);
     rig.group.position.set(x, 0, z);
     rig.group.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(rig.group);
+    const box = new THREE.Box3();
+    if (upright) for (const h of rig.hull) box.expandByObject(h);
+    else box.setFromObject(rig.group);
     rig.group.position.y += ground - box.min.y + 0.02;
     const size = new THREE.Vector3();
     box.getSize(size);
-    rig.group.userData.hx = size.x * 0.38;
-    rig.group.userData.hz = size.z * 0.38;
+    rig.group.userData.hx = upright ? Math.max(size.x * 0.38, 1.1) : size.x * 0.38;
+    rig.group.userData.hz = upright ? Math.max(size.z * 0.38, 1.1) : size.z * 0.38;
+    rig.group.userData.upright = upright;
     rig.group.updateMatrixWorld(true);
   }
 
@@ -2431,6 +2823,7 @@ export class Spacebound {
       yaw: this.walker.yaw,
       wx: this.walker.x,
       wz: this.walker.z,
+      zi: this.landedZone,
     };
   }
 

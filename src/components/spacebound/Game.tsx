@@ -259,6 +259,21 @@ export function Game() {
                 ASSIST
               </button>
             )}
+            {snap.phase === "flight" && snap.zones && (
+              <button
+                type="button"
+                aria-label="Scan for landing zones"
+                className="pointer-events-auto flex min-h-14 min-w-14 touch-none select-none items-center justify-center rounded-xl border border-accent bg-bg/80 px-3 font-display text-sm tracking-wide text-accent active:bg-accent/30"
+                onClick={() =>
+                  act((e) => {
+                    haptic.tap();
+                    e.scanNow();
+                  })
+                }
+              >
+                SCAN
+              </button>
+            )}
           </div>
         )}
         {snap && snap.screen === "play" && snap.phase === "flight" && !snap.modal && (
@@ -623,6 +638,24 @@ function SettingsPanel({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) =>
         >
           Haptics {s.haptics ? "on" : "off"}
         </button>
+        <button
+          type="button"
+          className="min-h-11 border border-line px-3 text-left"
+          onClick={() => act((e) => e.setSettings({ camLock: !s.camLock }))}
+        >
+          Free camera lock {s.camLock ? "on (stays where you leave it)" : "off (recenters on release)"}
+        </button>
+        <label className="grid gap-2 text-sm text-muted">
+          Free camera sensitivity {Math.round(s.lookSens * 100)}%
+          <input
+            type="range"
+            min={0.5}
+            max={2}
+            step={0.1}
+            value={s.lookSens}
+            onChange={(e) => act((en) => en.setSettings({ lookSens: Number(e.target.value) }))}
+          />
+        </label>
         <label className="grid gap-2 text-sm text-muted">
           Touch button size {Math.round(s.touchScale * 100)}%
           <input
@@ -745,6 +778,15 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
   const cockpit = snap.phase === "cockpit" || snap.phase === "surfaceCockpit";
   return (
     <>
+      {snap.atmo && (
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background: "radial-gradient(ellipse at 50% 55%, transparent 40%, " + snap.atmo.tint + " 150%)",
+            opacity: Math.min(0.5, 0.12 + snap.atmo.depth * 0.38),
+          }}
+        />
+      )}
       <div className="absolute left-4 top-4 max-w-xs border border-line bg-bg/80 p-3 backdrop-blur-md sm:left-6 sm:top-6 sb-obj">
         <p className="font-display text-xs tracking-widest text-accent">OBJECTIVE</p>
         <p className="font-display text-2xl uppercase leading-none">{snap.objective}</p>
@@ -755,6 +797,11 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
         <p className="font-display text-xl">{formatClock(snap.life)} LIFE</p>
         {flight && <p className="text-xs text-muted">{Math.round(snap.destDist)} su to target</p>}
       </div>
+      {flight && snap.freeCam && (
+        <p className="pointer-events-none absolute left-1/2 top-[8.5rem] -translate-x-1/2 whitespace-nowrap font-display text-xs tracking-widest text-muted">
+          FREE CAM
+        </p>
+      )}
       {snap.countdown !== null && (
         <p className="absolute left-1/2 top-24 -translate-x-1/2 font-display text-7xl text-accent sb-countdown">{snap.countdown}</p>
       )}
@@ -778,7 +825,7 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
               </Cmd>
             )}
           </div>
-          <p className="sb-hide-short mt-3 text-xs text-muted">W/S throttle · A/D yaw left/right · ↑/↓ pitch · Space/Shift RCS · V level wings · C camera · Esc hold</p>
+          <p className="sb-hide-short mt-3 text-xs text-muted">W/S throttle · A/D yaw left/right · ↑/↓ pitch · Space/Shift RCS · V level wings · C camera · right-drag look · wheel zoom · Esc hold</p>
         </div>
       )}
       {flight && (
@@ -816,6 +863,40 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
                   ? "LANDING ENVELOPE"
                   : "FLY THE BEACON"}
         </p>
+      )}
+      {flight && snap.atmo && (
+        <p className="pointer-events-none absolute bottom-36 left-1/2 -translate-x-1/2 whitespace-nowrap font-display text-xs tracking-widest text-primary sb-atmo-tag">
+          {snap.atmo.name.toUpperCase()} {snap.atmo.label.toUpperCase()}
+        </p>
+      )}
+      {flight && snap.zones && (
+        <div className="pointer-events-none absolute right-4 top-28 min-w-36 border border-line bg-bg/80 p-2 text-right backdrop-blur-md sb-zone">
+          <p className="font-display text-xs tracking-widest text-primary">
+            LANDING ZONES {snap.zones.found}/{snap.zones.total}
+          </p>
+          {snap.zones.target ? (
+            <div className="mt-1 flex items-center justify-end gap-2">
+              <div>
+                <p className={snap.zones.target.near ? "font-display text-sm uppercase text-[#4ade80]" : "font-display text-sm uppercase"}>
+                  {snap.zones.target.name}
+                </p>
+                <p className="text-xs text-muted">
+                  {snap.zones.target.inside ? "IN ZONE" : snap.zones.target.kind.toUpperCase() + " · " + Math.round(snap.zones.target.dist) + " su"}
+                </p>
+              </div>
+              <svg
+                viewBox="0 0 24 24"
+                className={snap.zones.target.near ? "size-7 text-[#4ade80]" : "size-7 text-primary"}
+                style={{ transform: "rotate(" + Math.round((snap.zones.target.angle * 180) / Math.PI) + "deg)" }}
+              >
+                <path d="M12 3 L19 20 L12 16 L5 20 Z" fill="currentColor" />
+              </svg>
+            </div>
+          ) : (
+            <p className="mt-1 text-xs text-muted">No zone found yet</p>
+          )}
+          <p className="text-xs text-muted">Scan in {Math.ceil(snap.zones.scanIn)}s · R</p>
+        </div>
       )}
       {surface && snap.phase === "surface" && (
         <div className="absolute bottom-6 left-4 border border-line bg-bg/80 p-3 backdrop-blur-md sb-ox">

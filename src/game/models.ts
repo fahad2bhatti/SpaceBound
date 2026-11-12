@@ -332,6 +332,26 @@ export function buildSpaceport(a: Assets): THREE.Group {
   pad.receiveShadow = true;
   pad.castShadow = true;
   g.add(pad);
+  // upright-launch-v1: rocket is seated on this launch stand (ship base at y = 1.05)
+  const stand = new THREE.Group();
+  const plate = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.3, 0.2, 20), a.mats.dark);
+  plate.position.y = 0.1;
+  plate.receiveShadow = true;
+  stand.add(plate);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.85, 0.32), a.mats.metal);
+      pillar.position.set(sx * 0.92, 0.625, sz * 0.92);
+      pillar.castShadow = true;
+      stand.add(pillar);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.12, 0.14), a.mats.orange);
+      arm.position.set(sx * 0.619, 0.99, sz * 0.619);
+      arm.rotation.y = -Math.atan2(sz, sx);
+      arm.castShadow = true;
+      stand.add(arm);
+    }
+  }
+  g.add(stand);
   const tower = new THREE.Group();
   tower.position.set(-8, 0, -6);
   const shaft = new THREE.Mesh(new THREE.BoxGeometry(1.4, 14, 1.4), a.mats.dark);

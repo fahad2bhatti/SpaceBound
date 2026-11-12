@@ -117,6 +117,8 @@ const FLIGHT_SCALE = 0.22;
 const ASSIST_ALT = 45; // easy-flight-v1: assist ab pehle shuru hota hai
 const ASSIST_DESC_MIN = 1.8;
 const ASSIST_DRIFT_MIN = 2.2;
+// land-anywhere-v1: touchdown limits for any spot outside a marked zone (same as the easy zones).
+const FREE_LAND = { maxDescent: 6, maxDrift: 4.8 };
 const BODY_IDS: BodyId[] = ["earth", "moon", "mars", "jupiter", "saturn", "uranus", "neptune"];
 // upright-turn-v1: upright rocket = nose up (rotate -90deg about X); gravity turn tilts it about the WORLD X axis.
 const UPRIGHT_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
@@ -266,6 +268,8 @@ export class Spacebound {
   private scanT = 2;
   private scanCool = 0;
   private landedZone = 0;
+  // land-anywhere-v1: exact touchdown direction (unit vector from the planet centre), used for the next liftoff.
+  private landed: { body: BodyId; n: THREE.Vector3 } | null = null;
   private prevR = false;
   private aUp = new THREE.Vector3();
   private aFwd = new THREE.Vector3();
@@ -465,6 +469,7 @@ export class Spacebound {
     this.save.started = true;
     this.confirmNew = false;
     this.modalQ = [];
+    this.landed = null;
     this.inspect = "starter";
     this.syncRuntimeFromShip(true);
     this.enterPad();
@@ -832,6 +837,7 @@ export class Spacebound {
     const tangent = this.v1.crossVectors(PAD, new THREE.Vector3(0, 1, 0)).normalize();
     this.flightVel().copy(tangent).multiplyScalar(3.4);
     this.orientShip(tangent, PAD);
+    this.resetFlightControls();
     this.fuel = Math.max(this.fuel, this.stats().fuel * 0.3);
     this.life = Math.max(this.life, 180);
     this.phase = "flight";
@@ -1332,10 +1338,14 @@ export class Spacebound {
     if (body === "mars") this.save.flags.returning = true;
     const rig = this.ensureFlightRig();
     const origin = this.bodyPos.get(body)!;
-    const n = this.zoneNormalAt(body, body === "earth" ? 0 : this.landedZone, this.v2);
+    // land-anywhere-v1: lift off from the exact spot we touched down on; with no landing this session, the zone / pad.
+    const spot = this.landed && this.landed.body === body ? this.landed.n : null;
+    this.landed = null;
+    const n = spot ? this.v2.copy(spot) : this.zoneNormalAt(body, body === "earth" ? 0 : this.landedZone, this.v2);
     this.pos().copy(origin).addScaledVector(n, BODIES[body].radius + 2.4);
     this.flightVel().copy(n).multiplyScalar(body === "earth" ? 5.2 : 3.2);
     this.orientShip(n, Math.abs(n.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0));
+    this.resetFlightControls();
     this.phase = "flight";
     this.sinceLaunch = 0;
     this.camMode = "chase";
@@ -1352,6 +1362,18 @@ export class Spacebound {
 
   private flightPos = new THREE.Vector3();
   private flightV = new THREE.Vector3();
+
+  /** Fresh camera and steering state for every flight start, so a relaunch never inherits the last flight's offset. */
+  private resetFlightControls(): void {
+    this.fcYaw = 0;
+    this.fcPitch = 0;
+    this.fcZoom = 1;
+    this.fcHold = 0;
+    this.steerSm = 0;
+    this.pitchSm = 0;
+    this.look = { dx: 0, dy: 0, zoom: 0, active: false };
+    this.input.resetLook();
+  }
 
   private pos(): THREE.Vector3 {
     return this.flightPos;
@@ -1548,22 +1570,25 @@ export class Spacebound {
       this.toast(`${def.name} has no surface. Climb away from the clouds.`);
       return;
     }
+    // land-anywhere-v1: every spot on a solid planet is landable. A marked zone only tightens the limits (hard zones) and pays its bonus.
     const lz = this.landingZone(body, true);
-    const inside = !!lz && lz.inside;
-    const maxD = lz ? lz.z.maxDescent : 6;
-    const maxH = lz ? lz.z.maxDrift : 4.8;
+    const zone = lz && lz.inside ? lz : null;
+    const maxD = zone ? zone.z.maxDescent : FREE_LAND.maxDescent;
+    const maxH = zone ? zone.z.maxDrift : FREE_LAND.maxDrift;
     if (descent > 9 || horiz > 8) {
-      this.flightPos.copy(center).addScaledVector(lz ? this.zoneNormalAt(body, lz.i, this.v2) : this.zoneNormal(body, this.v2), def.radius + 14);
+      this.v2.copy(up);
+      this.flightPos.copy(center).addScaledVector(this.v2, def.radius + 14);
       this.flightV.copy(this.v2).multiplyScalar(2.2);
       this.orientShip(this.v2, new THREE.Vector3(0, 1, 0));
       this.fuel = Math.max(6, this.fuel - 10);
       this.audio.alarm();
       this.flash = 0.5;
       haptic.heavy();
-      this.toast("Hard impact. Kill more speed before the beacon.");
+      this.toast("Hard impact. Kill more speed before touchdown.");
       return;
     }
-    if (inside && descent < maxD && horiz < maxH) {
+    if (descent < maxD && horiz < maxH) {
+      const spot = up.clone();
       const fuelFrac = this.fuel / Math.max(1, this.stats().fuel);
       this.audio.thud();
       this.audio.setThrottle(0);
@@ -1574,7 +1599,7 @@ export class Spacebound {
         this.save.flags.returning = false;
         this.life = this.stats().life;
         this.enterPad();
-        this.toast("Northline. Welcome down.");
+        this.toast(zone ? "Northline. Welcome down." : "Touchdown on Earth. Welcome down.");
       } else {
         if (body === "moon") {
           this.save.flags.moonLanded = true;
@@ -1586,23 +1611,18 @@ export class Spacebound {
         this.toast(`${def.name} touchdown. Egress when you're ready.`);
       }
       this.recordLanding(body, descent, horiz, fuelFrac);
-      this.onZoneLanded(lz);
+      this.landed = { body, n: spot };
+      this.landedZone = lz ? lz.i : 0;
+      this.onZoneLanded(zone);
       this.notifyNow = true;
       return;
     }
-    // bounce: back over the zone we were over when inside one, otherwise straight up from where we hit
-    const bn = inside && lz ? this.zoneNormalAt(body, lz.i, this.v3) : up;
-    this.flightPos.copy(center).addScaledVector(bn, def.radius + 1.05);
-    this.flightV.addScaledVector(bn, descent + 1.5);
+    // bounce: straight up from where we hit
+    this.flightPos.copy(center).addScaledVector(up, def.radius + 1.05);
+    this.flightV.addScaledVector(up, descent + 1.5);
     this.flightV.multiplyScalar(0.45);
     haptic.warn();
-    this.toast(
-      inside
-        ? "Too fast — hover and bleed speed."
-        : PLANETS[body].zones.length > 1
-          ? "Unsafe terrain. Land inside a marked zone. Press R to scan."
-          : "Outside the beacon pad.",
-    );
+    this.toast("Too fast. Hover and bleed speed before touchdown.");
   }
 
   private trackMissions(dt: number): void {
@@ -2136,8 +2156,12 @@ export class Spacebound {
     const climb = this.flightV.dot(up);
     const horiz = this.v4.copy(this.flightV).addScaledVector(up, -climb).length();
     const lz = this.landingZone(id, false);
-    const inside = !!lz && lz.inside;
-    return inside && descent < (lz ? lz.z.maxDescent : 6) && descent > -2 && horiz < (lz ? lz.z.maxDrift : 4.8);
+    const zone = lz && lz.inside ? lz : null;
+    return (
+      descent < (zone ? zone.z.maxDescent : FREE_LAND.maxDescent) &&
+      descent > -2 &&
+      horiz < (zone ? zone.z.maxDrift : FREE_LAND.maxDrift)
+    );
   }
 
   // phone-fix-waypoint-v1

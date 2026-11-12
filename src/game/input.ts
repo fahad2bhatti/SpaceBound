@@ -107,12 +107,10 @@ export class Input {
     this.onKeyUp = (e) => {
       this.keys.delete(e.code);
     };
-    this.onBlur = () => {
-      this.keys.clear();
-      this.touch = { ...this.touch, x: 0, y: 0, jump: false, run: false, rcsUp: false, rcsDown: false };
-    };
+    // A lost pointerup (app backgrounded, alt-tab) must never leave a button or look finger "held".
+    this.onBlur = () => this.releaseAll();
     this.onVis = () => {
-      if (document.hidden) this.keys.clear();
+      if (document.hidden) this.releaseAll();
     };
     this.onLock = () => {
       this.pointerLocked = document.pointerLockElement === this.canvas;
@@ -184,6 +182,32 @@ export class Input {
     this.canvas?.removeEventListener("pointermove", this.onLookMove);
     window.removeEventListener("pointerup", this.onLookUp);
     window.removeEventListener("pointercancel", this.onLookUp);
+  }
+
+  /** Drop every look pointer so a missed pointerup cannot leave the free camera stuck. */
+  resetLook(): void {
+    this.lookTouches.clear();
+    this.lookRight = false;
+    this.lookDX = 0;
+    this.lookDY = 0;
+    this.lookZoom = 0;
+    this.lookPinch = 0;
+  }
+
+  private releaseAll(): void {
+    this.keys.clear();
+    this.touch = {
+      ...this.touch,
+      x: 0,
+      y: 0,
+      jump: false,
+      run: false,
+      rcsUp: false,
+      rcsDown: false,
+      pitchUp: false,
+      pitchDown: false,
+    };
+    this.resetLook();
   }
 
   held(code: string): boolean {

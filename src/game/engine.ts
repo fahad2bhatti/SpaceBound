@@ -832,6 +832,7 @@ export class Spacebound {
     const tangent = this.v1.crossVectors(PAD, new THREE.Vector3(0, 1, 0)).normalize();
     this.flightVel().copy(tangent).multiplyScalar(3.4);
     this.orientShip(tangent, PAD);
+    this.resetFlightControls();
     this.fuel = Math.max(this.fuel, this.stats().fuel * 0.3);
     this.life = Math.max(this.life, 180);
     this.phase = "flight";
@@ -1336,6 +1337,7 @@ export class Spacebound {
     this.pos().copy(origin).addScaledVector(n, BODIES[body].radius + 2.4);
     this.flightVel().copy(n).multiplyScalar(body === "earth" ? 5.2 : 3.2);
     this.orientShip(n, Math.abs(n.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0));
+    this.resetFlightControls();
     this.phase = "flight";
     this.sinceLaunch = 0;
     this.camMode = "chase";
@@ -1352,6 +1354,18 @@ export class Spacebound {
 
   private flightPos = new THREE.Vector3();
   private flightV = new THREE.Vector3();
+
+  /** Fresh camera and steering state for every flight start, so a relaunch never inherits the last flight's offset. */
+  private resetFlightControls(): void {
+    this.fcYaw = 0;
+    this.fcPitch = 0;
+    this.fcZoom = 1;
+    this.fcHold = 0;
+    this.steerSm = 0;
+    this.pitchSm = 0;
+    this.look = { dx: 0, dy: 0, zoom: 0, active: false };
+    this.input.resetLook();
+  }
 
   private pos(): THREE.Vector3 {
     return this.flightPos;

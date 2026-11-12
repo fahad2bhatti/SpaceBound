@@ -107,6 +107,9 @@ const ASSIST_ALT = 45; // easy-flight-v1: assist ab pehle shuru hota hai
 const ASSIST_DESC_MIN = 1.8;
 const ASSIST_DRIFT_MIN = 2.2;
 const BODY_IDS: BodyId[] = ["earth", "moon", "mars", "jupiter", "saturn", "uranus", "neptune"];
+// upright-turn-v1: upright rocket = nose up (rotate -90deg about X); gravity turn tilts it about the WORLD X axis.
+const UPRIGHT_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+const WORLD_X = new THREE.Vector3(1, 0, 0);
 
 declare global {
   interface Window {
@@ -1247,7 +1250,8 @@ export class Spacebound {
     this.liftY += this.liftV * dt;
     const base = this.baseY.get(rig) ?? rig.group.position.y;
     rig.group.position.y = base + this.liftY;
-    if (upright) rig.group.rotation.z = Math.min(1.4, this.liftY * 0.012);
+    // upright-turn-v1: old code spun the rocket around its own nose axis. Now: slow gravity turn away from the camera.
+    if (upright) rig.group.quaternion.setFromAxisAngle(WORLD_X, -Math.min(0.5, this.liftY * 0.004)).multiply(UPRIGHT_Q);
     this.glow(rig, 1);
     this.burst(rig, upright ? 28 : 16);
     this.audio.setThrottle(1);

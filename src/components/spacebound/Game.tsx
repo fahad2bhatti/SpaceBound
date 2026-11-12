@@ -259,6 +259,21 @@ export function Game() {
                 ASSIST
               </button>
             )}
+            {snap.phase === "flight" && snap.zones && (
+              <button
+                type="button"
+                aria-label="Scan for landing zones"
+                className="pointer-events-auto flex min-h-14 min-w-14 touch-none select-none items-center justify-center rounded-xl border border-accent bg-bg/80 px-3 font-display text-sm tracking-wide text-accent active:bg-accent/30"
+                onClick={() =>
+                  act((e) => {
+                    haptic.tap();
+                    e.scanNow();
+                  })
+                }
+              >
+                SCAN
+              </button>
+            )}
           </div>
         )}
         {snap && snap.screen === "play" && snap.phase === "flight" && !snap.modal && (
@@ -763,6 +778,15 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
   const cockpit = snap.phase === "cockpit" || snap.phase === "surfaceCockpit";
   return (
     <>
+      {snap.atmo && (
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background: "radial-gradient(ellipse at 50% 55%, transparent 40%, " + snap.atmo.tint + " 150%)",
+            opacity: Math.min(0.5, 0.12 + snap.atmo.depth * 0.38),
+          }}
+        />
+      )}
       <div className="absolute left-4 top-4 max-w-xs border border-line bg-bg/80 p-3 backdrop-blur-md sm:left-6 sm:top-6 sb-obj">
         <p className="font-display text-xs tracking-widest text-accent">OBJECTIVE</p>
         <p className="font-display text-2xl uppercase leading-none">{snap.objective}</p>
@@ -839,6 +863,40 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
                   ? "LANDING ENVELOPE"
                   : "FLY THE BEACON"}
         </p>
+      )}
+      {flight && snap.atmo && (
+        <p className="pointer-events-none absolute bottom-36 left-1/2 -translate-x-1/2 whitespace-nowrap font-display text-xs tracking-widest text-primary sb-atmo-tag">
+          {snap.atmo.name.toUpperCase()} {snap.atmo.label.toUpperCase()}
+        </p>
+      )}
+      {flight && snap.zones && (
+        <div className="pointer-events-none absolute right-4 top-28 min-w-36 border border-line bg-bg/80 p-2 text-right backdrop-blur-md sb-zone">
+          <p className="font-display text-xs tracking-widest text-primary">
+            LANDING ZONES {snap.zones.found}/{snap.zones.total}
+          </p>
+          {snap.zones.target ? (
+            <div className="mt-1 flex items-center justify-end gap-2">
+              <div>
+                <p className={snap.zones.target.near ? "font-display text-sm uppercase text-[#4ade80]" : "font-display text-sm uppercase"}>
+                  {snap.zones.target.name}
+                </p>
+                <p className="text-xs text-muted">
+                  {snap.zones.target.inside ? "IN ZONE" : snap.zones.target.kind.toUpperCase() + " · " + Math.round(snap.zones.target.dist) + " su"}
+                </p>
+              </div>
+              <svg
+                viewBox="0 0 24 24"
+                className={snap.zones.target.near ? "size-7 text-[#4ade80]" : "size-7 text-primary"}
+                style={{ transform: "rotate(" + Math.round((snap.zones.target.angle * 180) / Math.PI) + "deg)" }}
+              >
+                <path d="M12 3 L19 20 L12 16 L5 20 Z" fill="currentColor" />
+              </svg>
+            </div>
+          ) : (
+            <p className="mt-1 text-xs text-muted">No zone found yet</p>
+          )}
+          <p className="text-xs text-muted">Scan in {Math.ceil(snap.zones.scanIn)}s · R</p>
+        </div>
       )}
       {surface && snap.phase === "surface" && (
         <div className="absolute bottom-6 left-4 border border-line bg-bg/80 p-3 backdrop-blur-md sb-ox">

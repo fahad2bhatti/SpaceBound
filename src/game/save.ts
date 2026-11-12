@@ -41,6 +41,8 @@ export type Resume = {
   yaw: number;
   wx: number;
   wz: number;
+  /** planet-zones-v1: which landing zone the ship is sitting on (index into PLANETS[body].zones). */
+  zi?: number;
 };
 
 export type SaveData = {
@@ -59,6 +61,9 @@ export type SaveData = {
   stats: { launches: number; landings: number };
   /** First-time tips the player has already seen (see hints.ts). */
   hints: string[];
+  /** planet-zones-v1: scanned landing zone ids, and zone rewards already paid. */
+  zonesFound: string[];
+  zonesClaimed: string[];
   resume: Resume | null;
 };
 
@@ -96,6 +101,8 @@ export function defaultSave(): SaveData {
     },
     stats: { launches: 0, landings: 0 },
     hints: [],
+    zonesFound: [],
+    zonesClaimed: [],
     resume: null,
   };
 }
@@ -186,6 +193,8 @@ function sanitize(raw: Partial<SaveData>): SaveData {
       landings: Math.max(0, raw.stats?.landings ?? 0),
     },
     hints,
+    zonesFound: Array.isArray(raw.zonesFound) ? raw.zonesFound.filter((x): x is string => typeof x === "string") : [],
+    zonesClaimed: Array.isArray(raw.zonesClaimed) ? raw.zonesClaimed.filter((x): x is string => typeof x === "string") : [],
     resume: raw.resume ?? null,
   };
 }

@@ -35,6 +35,7 @@ import {
   type ShipRig,
   type Terrain,
 } from "./models";
+import { gradeLanding } from "./landing";
 import { defaultSave, loadSave, writeSave, type Quality, type SaveData, type Settings } from "./save";
 
 export type Screen = "menu" | "garage" | "missions" | "solar" | "settings" | "credits" | "play" | "pause";
@@ -50,7 +51,7 @@ export type Phase =
   | "surfaceLiftoff";
 export type CamMode = "chase" | "cockpit";
 
-export type Modal = { title: string; text: string; reward: number };
+export type Modal = { title: string; text: string; reward: number; kicker?: string };
 
 export type Snap = {
   screen: Screen;
@@ -87,6 +88,7 @@ export type Snap = {
   envelope: boolean;
   rangeLocked: boolean;
   braking: boolean;
+  assistActive: boolean;
   cam: CamMode;
   flash: number;
   sampleCount: number;
@@ -98,6 +100,10 @@ export type Snap = {
 
 const PAD = new THREE.Vector3(0.2, 0.38, 0.9).normalize();
 const FLIGHT_SCALE = 0.22;
+// Landing assist: active below this altitude while descending (see applyLandingAssist).
+const ASSIST_ALT = 22;
+const ASSIST_DESC_MIN = 2;
+const ASSIST_DRIFT_MIN = 2.5;
 const BODY_IDS: BodyId[] = ["earth", "moon", "mars", "jupiter", "saturn", "uranus", "neptune"];
 
 declare global {
@@ -221,6 +227,12 @@ export class Spacebound {
   private v4 = new THREE.Vector3();
   private v5 = new THREE.Vector3();
   private basis = new THREE.Matrix4();
+  private assistActive = false;
+  private aUp = new THREE.Vector3();
+  private aFwd = new THREE.Vector3();
+  private aSide = new THREE.Vector3();
+  private aHoriz = new THREE.Vector3();
+  private aQ = new THREE.Quaternion();
   private ray = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
   private clockMouse = { x: 0, y: 0 };
@@ -363,6 +375,7 @@ export class Spacebound {
       envelope: this.inEnvelope(),
       rangeLocked: this.outOfRange(),
       braking: this.phase === "flight" && this.velLen() > this.speedCap() * 1.08,
+      assistActive: this.phase === "flight" && this.assistActive,
       cam: this.camMode,
       flash: this.flash,
       sampleCount: this.save.samples[this.surfaceBody] ?? 0,
@@ -1320,6 +1333,7 @@ export class Spacebound {
 
     const sp2 = this.flightV.length();
     if (sp2 > cap) this.flightV.multiplyScalar(Math.max(cap / sp2, 1 - dt * 0.85));
+    this.applyLandingAssist(dt, body, alt);
     this.flightPos.addScaledVector(this.flightV, dt);
     this.resolveGround(body);
     rig.group.position.copy(this.flightPos);
@@ -1342,6 +1356,60 @@ export class Spacebound {
     this.updateBeaconScales();
     if (!this.reduce && this.sinceLaunch < 6) this.trauma = Math.max(this.trauma, 0.25);
     this.applyShake();
+  }
+
+  private applyLandingAssist(dt: number, body: BodyId, alt: number): void {
+    this.assistActive = false;
+    const rig = this.flightRig;
+    if (!rig || !this.save.settings.assist || this.fuel <= 0) return;
+    if (BODIES[body].gas || alt > ASSIST_ALT || this.sinceLaunch < 8) return;
+    const up = this.aUp.copy(this.flightPos).sub(this.bodyPos.get(body)!).normalize();
+    const climb = this.flightV.dot(up);
+    if (climb > 0.5) return;
+    this.assistActive = true;
+
+    // Level the nose to the local horizon, stronger the closer we are to the ground.
+    const t = 1 - Math.exp(-3 * THREE.MathUtils.clamp((ASSIST_ALT - alt) / 12, 0, 1) * dt);
+    this.forward(rig, this.aFwd);
+    this.aFwd.addScaledVector(up, -this.aFwd.dot(up));
+    if (this.aFwd.lengthSq() > 0.01) {
+      this.aFwd.normalize();
+      this.aSide.crossVectors(up, this.aFwd).normalize();
+      this.basis.makeBasis(this.aSide, up, this.aFwd);
+      this.aQ.setFromRotationMatrix(this.basis);
+      rig.group.quaternion.slerp(this.aQ, t);
+      this.bank *= 1 - t;
+    }
+
+    // Cap descent and sideways speed as the ground gets closer. Braking burns a little fuel.
+    const rate = Math.min(1, dt * 8);
+    let braked = false;
+    const maxDesc = ASSIST_DESC_MIN + alt * 0.25;
+    if (-climb > maxDesc) {
+      this.flightV.addScaledVector(up, (-maxDesc - climb) * rate);
+      braked = true;
+    }
+    const maxDrift = ASSIST_DRIFT_MIN + alt * 0.2;
+    const hv = this.aHoriz.copy(this.flightV).addScaledVector(up, -this.flightV.dot(up));
+    const hs = hv.length();
+    if (hs > maxDrift) {
+      this.flightV.addScaledVector(hv, -(1 - maxDrift / hs) * rate);
+      braked = true;
+    }
+    if (braked) this.fuel = Math.max(0, this.fuel - this.stats().burn * 0.5 * dt);
+  }
+
+  private recordLanding(body: BodyId, descent: number, drift: number, fuelFrac: number): void {
+    const assisted = this.save.settings.assist;
+    const { grade, bonus } = gradeLanding(descent, drift, fuelFrac, assisted, body);
+    this.save.credits += bonus;
+    this.modalQ.push({
+      kicker: "LANDING REPORT",
+      title: `Grade ${grade}`,
+      text: `Descent ${Math.max(0, descent).toFixed(1)} · Drift ${Math.abs(drift).toFixed(1)} · Fuel ${Math.round(fuelFrac * 100)}%.${assisted ? " Landing assist caps the grade at A." : ""}`,
+      reward: bonus,
+    });
+    this.persist(true);
   }
 
   private resolveGround(body: BodyId): void {
@@ -1372,6 +1440,7 @@ export class Spacebound {
       return;
     }
     if (inside && descent < 6 && horiz < 4.8) {
+      const fuelFrac = this.fuel / Math.max(1, this.stats().fuel);
       this.audio.thud();
       this.audio.setThrottle(0);
       this.throttle = 0;
@@ -1392,6 +1461,7 @@ export class Spacebound {
         this.enterSurface(body, true);
         this.toast(`${def.name} touchdown. Egress when you're ready.`);
       }
+      this.recordLanding(body, descent, horiz, fuelFrac);
       this.notifyNow = true;
       return;
     }

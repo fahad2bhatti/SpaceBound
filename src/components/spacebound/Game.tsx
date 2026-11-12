@@ -190,7 +190,7 @@ export function Game() {
         {snap && snap.modal && (
           <div className="pointer-events-auto absolute inset-0 flex items-center justify-center bg-bg/70 p-4">
             <div className="w-full max-w-md border border-line bg-surface p-6">
-              <p className="font-display tracking-widest text-accent">MISSION COMPLETE</p>
+              <p className="font-display tracking-widest text-accent">{snap.modal.kicker ?? "MISSION COMPLETE"}</p>
               <h2 className="mt-2 font-display text-4xl uppercase">{snap.modal.title}</h2>
               <p className="mt-3 text-sm leading-relaxed text-muted">{snap.modal.text}</p>
               <p className="mt-4 font-display text-2xl text-primary">+{formatInt(snap.modal.reward)} CR</p>
@@ -229,6 +229,21 @@ export function Game() {
             >
               <MapIcon className="size-6" />
             </button>
+            {snap.phase === "flight" && (
+              <button
+                type="button"
+                aria-label="Landing assist"
+                aria-pressed={snap.settings.assist}
+                className={
+                  snap.settings.assist
+                    ? "pointer-events-auto flex min-h-14 min-w-14 touch-none select-none items-center justify-center rounded-xl border border-primary bg-primary/30 px-3 font-display text-sm tracking-wide text-primary"
+                    : "pointer-events-auto flex min-h-14 min-w-14 touch-none select-none items-center justify-center rounded-xl border border-line bg-bg/80 px-3 font-display text-sm tracking-wide"
+                }
+                onClick={() => act((e) => e.setSettings({ assist: !snap.settings.assist }))}
+              >
+                ASSIST
+              </button>
+            )}
           </div>
         )}
         {snap && snap.screen === "play" && snap.phase === "flight" && !snap.modal && (
@@ -570,6 +585,13 @@ function SettingsPanel({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) =>
         >
           Ambient drone {s.ambient ? "on" : "off"}
         </button>
+        <button
+          type="button"
+          className="min-h-11 border border-line px-3 text-left"
+          onClick={() => act((e) => e.setSettings({ assist: !s.assist }))}
+        >
+          Landing assist {s.assist ? "on" : "off"}
+        </button>
         <label className="grid gap-2 text-sm text-muted">
           Look sensitivity
           <input
@@ -737,7 +759,17 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
               : "absolute bottom-28 left-1/2 -translate-x-1/2 font-display tracking-widest text-muted"
           }
         >
-          {snap.rangeLocked ? "RANGE LOCK" : snap.braking ? "ENTRY BRAKE" : snap.envelope ? "LANDING ENVELOPE" : "FLY THE BEACON"}
+          {snap.rangeLocked
+            ? "RANGE LOCK"
+            : snap.braking
+              ? "ENTRY BRAKE"
+              : snap.assistActive
+                ? snap.envelope
+                  ? "ASSIST · LANDING ENVELOPE"
+                  : "LANDING ASSIST"
+                : snap.envelope
+                  ? "LANDING ENVELOPE"
+                  : "FLY THE BEACON"}
         </p>
       )}
       {surface && snap.phase === "surface" && (

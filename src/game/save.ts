@@ -15,6 +15,7 @@ export type Settings = {
   quality: Quality;
   sens: number;
   ambient: boolean;
+  assist: boolean;
 };
 
 export type Resume = {
@@ -68,7 +69,14 @@ export function defaultSave(): SaveData {
     samples: {},
     flags: { moonLanded: false, returning: false },
     destination: "orbit",
-    settings: { muted: false, volume: 0.7, quality: "medium", sens: 0.0022, ambient: true },
+    settings: {
+      muted: false,
+      volume: 0.7,
+      quality: "medium",
+      sens: 0.0022,
+      ambient: true,
+      assist: typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches === true,
+    },
     stats: { launches: 0, landings: 0 },
     resume: null,
   };
@@ -109,6 +117,7 @@ function sanitize(raw: Partial<SaveData>): SaveData {
     ...(raw.settings ?? {}),
     volume: clamp(raw.settings?.volume ?? base.settings.volume, 0, 1),
     sens: clamp(raw.settings?.sens ?? base.settings.sens, 0.0008, 0.006),
+    assist: typeof raw.settings?.assist === "boolean" ? raw.settings.assist : base.settings.assist,
     quality:
       raw.settings?.quality === "low" || raw.settings?.quality === "high"
         ? raw.settings.quality

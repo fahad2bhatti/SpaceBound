@@ -434,6 +434,23 @@ export function buildAtmosphere(radius: number, color: THREE.Color): THREE.Mesh 
   return new THREE.Mesh(new THREE.SphereGeometry(radius * 1.08, 48, 32), mat);
 }
 
+// stars-round-v1
+function starSprite(): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const g = canvas.getContext("2d");
+  if (g) {
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, "rgba(255,255,255,1)");
+    grad.addColorStop(0.3, "rgba(255,255,255,0.9)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+  }
+  return new THREE.CanvasTexture(canvas);
+}
+
 export function buildStars(count: number, inner: number, outer: number): THREE.Points {
   const geo = new THREE.BufferGeometry();
   const pos = new Float32Array(count * 3);
@@ -451,6 +468,9 @@ export function buildStars(count: number, inner: number, outer: number): THREE.P
     size: 1.4,
     sizeAttenuation: true,
     depthWrite: false,
+    map: starSprite(),
+    transparent: true,
+    alphaTest: 0.01,
   });
   return new THREE.Points(geo, mat);
 }

@@ -98,6 +98,7 @@ export type Snap = {
   docked: boolean;
   refuelPrice: number;
   body: BodyId;
+  freeCam: boolean;
 };
 
 const PAD = new THREE.Vector3(0.2, 0.38, 0.9).normalize();
@@ -237,6 +238,13 @@ export class Spacebound {
   private assistActive = false;
   private steerSm = 0; // easy-flight-v1
   private pitchSm = 0;
+  // free-cam-v1
+  private fcYaw = 0;
+  private fcPitch = 0;
+  private fcZoom = 1;
+  private fcHold = 0;
+  private look = { dx: 0, dy: 0, zoom: 0, active: false };
+  private frameWheel = 0;
   private aUp = new THREE.Vector3();
   private aFwd = new THREE.Vector3();
   private aSide = new THREE.Vector3();
@@ -394,6 +402,10 @@ export class Spacebound {
       docked,
       refuelPrice: refuelCost(missing, this.phase.startsWith("surface")),
       body: this.phase.startsWith("surface") ? this.surfaceBody : this.dominant(),
+      freeCam:
+        this.phase === "flight" &&
+        this.camMode === "chase" &&
+        (this.look.active || Math.abs(this.fcYaw) + Math.abs(this.fcPitch) + Math.abs(this.fcZoom - 1) > 0.05),
     };
   }
 
@@ -891,6 +903,8 @@ export class Spacebound {
     const drag = this.input.consumeDrag();
     const wheel = this.input.consumeWheel();
     this.handleEdges(pulses);
+    this.look = this.input.consumeLook(); // free-cam-v1: consumed every frame so nothing piles up
+    this.frameWheel = wheel;
 
     if (this.view === "solar" && click) this.pickSolar(click);
     else if (click && this.screen === "play" && this.modalQ.length === 0) this.input.requestLock();
@@ -1617,10 +1631,47 @@ export class Spacebound {
     }
     this.forward(rig, this.v1);
     const up = this.v2.set(0, 1, 0).applyQuaternion(rig.group.quaternion);
-    const dist = 7.5;
-    this.v4.copy(this.flightPos).addScaledVector(this.v1, -dist).addScaledVector(up, 2.1);
-    this.camera.position.lerp(this.v4, 1 - Math.exp(-4 * dt));
-    this.v5.copy(this.flightPos).addScaledVector(this.v1, 3);
+    // free-cam-v1: drag/swipe = orbit the ship, pinch/wheel = zoom, release = glide back to the chase view (~0.6s).
+    // Pure camera work: it never touches steering, throttle or the ship.
+    const set = this.save.settings;
+    const L = this.look;
+    const px = 0.0055 * (set.lookSens || 1);
+    if (L.dx || L.dy) {
+      this.fcYaw += L.dx * px;
+      this.fcPitch = THREE.MathUtils.clamp(this.fcPitch + L.dy * px, -0.62, 1.03);
+    }
+    if (L.zoom) this.fcZoom *= Math.exp(-L.zoom * 0.006);
+    if (this.frameWheel) this.fcZoom *= Math.exp(this.frameWheel * 0.0012);
+    this.fcZoom = THREE.MathUtils.clamp(this.fcZoom, 0.5, 2.4);
+    if (L.active) this.fcHold = 0;
+    else if (this.frameWheel) this.fcHold = 1.2;
+    else this.fcHold = Math.max(0, this.fcHold - dt);
+    if (!L.active && this.fcHold <= 0 && !set.camLock) {
+      this.fcYaw = THREE.MathUtils.euclideanModulo(this.fcYaw + Math.PI, Math.PI * 2) - Math.PI;
+      const k = 1 - Math.exp(-dt / 0.2);
+      this.fcYaw -= this.fcYaw * k;
+      this.fcPitch -= this.fcPitch * k;
+      this.fcZoom += (1 - this.fcZoom) * k;
+    }
+    const R0 = Math.hypot(7.5, 2.1) * this.fcZoom;
+    const pa = Math.atan2(2.1, 7.5) + this.fcPitch;
+    const cp = Math.cos(pa);
+    this.v4
+      .set(Math.sin(this.fcYaw) * cp * R0, Math.sin(pa) * R0, -Math.cos(this.fcYaw) * cp * R0)
+      .applyQuaternion(rig.group.quaternion)
+      .add(this.flightPos);
+    // keep the camera out of the ground / planet
+    const fb = this.dominant();
+    const fc = this.bodyPos.get(fb)!;
+    const minR = BODIES[fb].radius + 0.9;
+    this.v3.copy(this.v4).sub(fc);
+    const fl = this.v3.length();
+    if (fl < minR) this.v4.copy(fc).addScaledVector(this.v3, minR / Math.max(fl, 1e-4));
+    const off = Math.abs(this.fcYaw) + Math.abs(this.fcPitch) + Math.abs(this.fcZoom - 1) > 0.02;
+    const rate = L.active || this.fcHold > 0 || off ? 12 : 4;
+    this.camera.position.lerp(this.v4, 1 - Math.exp(-rate * dt));
+    const kf = THREE.MathUtils.clamp(Math.abs(this.fcYaw) / 0.7 + Math.abs(this.fcPitch) / 0.5, 0, 1);
+    this.v5.copy(this.flightPos).addScaledVector(this.v1, 3 * (1 - kf));
     this.camera.lookAt(this.v5);
   }
 

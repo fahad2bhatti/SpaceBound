@@ -623,6 +623,24 @@ function SettingsPanel({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) =>
         >
           Haptics {s.haptics ? "on" : "off"}
         </button>
+        <button
+          type="button"
+          className="min-h-11 border border-line px-3 text-left"
+          onClick={() => act((e) => e.setSettings({ camLock: !s.camLock }))}
+        >
+          Free camera lock {s.camLock ? "on (stays where you leave it)" : "off (recenters on release)"}
+        </button>
+        <label className="grid gap-2 text-sm text-muted">
+          Free camera sensitivity {Math.round(s.lookSens * 100)}%
+          <input
+            type="range"
+            min={0.5}
+            max={2}
+            step={0.1}
+            value={s.lookSens}
+            onChange={(e) => act((en) => en.setSettings({ lookSens: Number(e.target.value) }))}
+          />
+        </label>
         <label className="grid gap-2 text-sm text-muted">
           Touch button size {Math.round(s.touchScale * 100)}%
           <input
@@ -755,6 +773,11 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
         <p className="font-display text-xl">{formatClock(snap.life)} LIFE</p>
         {flight && <p className="text-xs text-muted">{Math.round(snap.destDist)} su to target</p>}
       </div>
+      {flight && snap.freeCam && (
+        <p className="pointer-events-none absolute left-1/2 top-[8.5rem] -translate-x-1/2 whitespace-nowrap font-display text-xs tracking-widest text-muted">
+          FREE CAM
+        </p>
+      )}
       {snap.countdown !== null && (
         <p className="absolute left-1/2 top-24 -translate-x-1/2 font-display text-7xl text-accent sb-countdown">{snap.countdown}</p>
       )}
@@ -778,7 +801,7 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
               </Cmd>
             )}
           </div>
-          <p className="sb-hide-short mt-3 text-xs text-muted">W/S throttle · A/D yaw left/right · ↑/↓ pitch · Space/Shift RCS · V level wings · C camera · Esc hold</p>
+          <p className="sb-hide-short mt-3 text-xs text-muted">W/S throttle · A/D yaw left/right · ↑/↓ pitch · Space/Shift RCS · V level wings · C camera · right-drag look · wheel zoom · Esc hold</p>
         </div>
       )}
       {flight && (

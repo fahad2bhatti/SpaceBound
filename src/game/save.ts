@@ -22,6 +22,10 @@ export type Settings = {
   /** Touch button and stick scale, 0.8 to 1.4. */
   touchScale: number;
   haptics: boolean;
+  /** free-cam-v1: drag-look speed multiplier, 0.5 to 2. */
+  lookSens: number;
+  /** free-cam-v1: keep the free camera where the player left it instead of recentering. */
+  camLock: boolean;
 };
 
 export type Resume = {
@@ -87,6 +91,8 @@ export function defaultSave(): SaveData {
       leftHanded: false,
       touchScale: 1,
       haptics: true,
+      lookSens: 1,
+      camLock: false,
     },
     stats: { launches: 0, landings: 0 },
     hints: [],
@@ -133,6 +139,8 @@ function sanitize(raw: Partial<SaveData>): SaveData {
     leftHanded: typeof raw.settings?.leftHanded === "boolean" ? raw.settings.leftHanded : base.settings.leftHanded,
     touchScale: clamp(raw.settings?.touchScale ?? base.settings.touchScale, 0.8, 1.4),
     haptics: typeof raw.settings?.haptics === "boolean" ? raw.settings.haptics : base.settings.haptics,
+    lookSens: clamp(raw.settings?.lookSens ?? base.settings.lookSens, 0.5, 2),
+    camLock: typeof raw.settings?.camLock === "boolean" ? raw.settings.camLock : base.settings.camLock,
     quality:
       raw.settings?.quality === "low" || raw.settings?.quality === "high"
         ? raw.settings.quality

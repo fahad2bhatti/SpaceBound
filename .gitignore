@@ -1,17 +1,5 @@
-node_modules/
-.project_id
-.github_repo
-.env
-.env.*
-
-# extra
-node_modules/
-dist/
-.env
-.env.*
-*.bak
-*.log
-*.jks
-*.keystore
-local.properties
+node_modules
+dist
 apply_*.mjs
+*.bak
+.DS_Store

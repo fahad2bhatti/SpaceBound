@@ -67,9 +67,12 @@ function Cmd({
   );
 }
 
-function Panel({ children }: { children: React.ReactNode }) {
+// menu-compact-v1
+function Panel({ children, compact }: { children: React.ReactNode; compact?: boolean }) {
   return (
-    <aside className="pointer-events-auto flex max-h-full w-full flex-col gap-4 overflow-y-auto bg-bg/90 p-5 backdrop-blur-md sm:max-w-md sm:border-r sm:border-line sm:p-8">
+    <aside
+      className={"pointer-events-auto flex max-h-full w-full flex-col gap-4 overflow-y-auto bg-bg/90 p-5 backdrop-blur-md sm:max-w-md sm:border-r sm:border-line sm:p-8" + (compact ? " sb-panel-menu" : "")}
+    >
       {children}
     </aside>
   );
@@ -180,7 +183,7 @@ export function Game() {
           <Hud snap={snap} act={act} />
         )}
         {snap?.toast && (
-          <p className="absolute left-1/2 top-6 max-w-md -translate-x-1/2 border border-line bg-bg/90 px-4 py-2 text-center text-sm text-fg">
+          <p className="absolute left-1/2 top-[4.5rem] max-w-md -translate-x-1/2 border border-line bg-bg/90 px-4 py-2 text-center text-sm text-fg">
             {snap.toast}
           </p>
         )}
@@ -204,7 +207,7 @@ export function Game() {
         )}
         {snap && touchUi && snap.screen === "play" && !snap.modal && <Touch snap={snap} act={act} />}
         {snap && touchUi && snap.screen === "play" && !snap.modal && (
-          <div className="absolute right-4 top-28 flex flex-col gap-3">
+          <div className="absolute left-1/2 top-3 flex -translate-x-1/2 gap-3">
             <button
               type="button"
               aria-label="Pause menu"
@@ -243,9 +246,9 @@ function CheckMark() {
 function Menu({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => void }) {
   return (
     <div className="flex h-full items-stretch">
-      <Panel>
+      <Panel compact>
         <Mark />
-        <p className="text-sm leading-relaxed text-muted">
+        <p className="sb-hide-short text-sm leading-relaxed text-muted">
           Walk the gantry, earn the range, and bring the ship home. Distances are compressed so a transfer
           takes minutes, not months.
         </p>
@@ -270,22 +273,24 @@ function Menu({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =>
             )}
           </>
         )}
-        <Cmd onClick={() => act((e) => e.open("garage"))}>
-          Spacecraft Garage <Gauge className="size-5" />
-        </Cmd>
-        <Cmd onClick={() => act((e) => e.open("missions"))}>
-          Missions <Award className="size-5" />
-        </Cmd>
-        <Cmd onClick={() => act((e) => e.open("solar"))}>
-          Solar Chart <Compass className="size-5" />
-        </Cmd>
-        <Cmd onClick={() => act((e) => e.open("settings"))}>
-          Settings <Settings className="size-5" />
-        </Cmd>
-        <Cmd onClick={() => act((e) => e.open("credits"))}>
-          Credits <Info className="size-5" />
-        </Cmd>
-        <p className="text-xs leading-relaxed text-muted">
+        <div className="sb-menu-grid flex flex-col gap-4">
+          <Cmd onClick={() => act((e) => e.open("garage"))}>
+            Spacecraft Garage <Gauge className="size-5" />
+          </Cmd>
+          <Cmd onClick={() => act((e) => e.open("missions"))}>
+            Missions <Award className="size-5" />
+          </Cmd>
+          <Cmd onClick={() => act((e) => e.open("solar"))}>
+            Solar Chart <Compass className="size-5" />
+          </Cmd>
+          <Cmd onClick={() => act((e) => e.open("settings"))}>
+            Settings <Settings className="size-5" />
+          </Cmd>
+          <Cmd onClick={() => act((e) => e.open("credits"))}>
+            Credits <Info className="size-5" />
+          </Cmd>
+        </div>
+        <p className="sb-hide-short text-xs leading-relaxed text-muted">
           Pad: WASD move, A/D turn, Shift run, Space jump, mouse look, E board. Flight: W/S throttle, A/D yaw,
           arrows pitch, Space/Shift RCS, V level, C camera.
         </p>
@@ -775,19 +780,31 @@ function CheckBtn({ on, label, onClick }: { on: boolean; label: string; onClick:
   );
 }
 
+// phone-fix-dpad-v1
 function Touch({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => void }) {
   const flight = snap.phase === "flight";
   const setStick = (x: number, y: number) => act((e) => e.input.setTouch({ x, y }));
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-4 pb-24">
-      <Stick onChange={setStick} />
+      {flight ? (
+        <div className="pointer-events-auto grid grid-cols-3 gap-2">
+          <span />
+          <TouchBtn label="▲" hold onHold={(v) => act((e) => e.input.setTouch({ pitchUp: v }))} />
+          <span />
+          <TouchBtn label="◀" hold onHold={(v) => act((e) => e.input.setTouch({ x: v ? -1 : 0 }))} />
+          <TouchBtn label="▼" hold onHold={(v) => act((e) => e.input.setTouch({ pitchDown: v }))} />
+          <TouchBtn label="▶" hold onHold={(v) => act((e) => e.input.setTouch({ x: v ? 1 : 0 }))} />
+        </div>
+      ) : (
+        <Stick onChange={setStick} />
+      )}
       <div className="pointer-events-auto grid grid-cols-2 gap-3">
         <TouchBtn label="E" onDown={() => act((e) => e.input.pulseInteract())} />
         <TouchBtn label="C" onDown={() => act((e) => e.input.pulseCam())} />
         {flight ? (
           <>
-            <TouchBtn label="UP" hold onHold={(v) => act((e) => e.input.setTouch({ pitchUp: v }))} />
-            <TouchBtn label="DN" hold onHold={(v) => act((e) => e.input.setTouch({ pitchDown: v }))} />
+            <TouchBtn label="THR+" hold onHold={(v) => act((e) => e.input.setTouch({ y: v ? 1 : 0 }))} />
+            <TouchBtn label="THR-" hold onHold={(v) => act((e) => e.input.setTouch({ y: v ? -1 : 0 }))} />
             <TouchBtn label="RCS+" hold onHold={(v) => act((e) => e.input.setTouch({ rcsUp: v }))} />
             <TouchBtn label="RCS-" hold onHold={(v) => act((e) => e.input.setTouch({ rcsDown: v }))} />
           </>

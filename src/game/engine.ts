@@ -1339,7 +1339,7 @@ export class Spacebound {
     const rig = this.ensureFlightRig();
     const origin = this.bodyPos.get(body)!;
     // land-anywhere-v1: lift off from the exact spot we touched down on; with no landing this session, the zone / pad.
-    const spot = this.landed && this.landed.body === body ? this.landed.n : null;
+    const spot = this.landed && this.landed.body === body && body !== "earth" ? this.landed.n : null; // earth-pad-fix-v1
     this.landed = null;
     const n = spot ? this.v2.copy(spot) : this.zoneNormalAt(body, body === "earth" ? 0 : this.landedZone, this.v2);
     this.pos().copy(origin).addScaledVector(n, BODIES[body].radius + 2.4);

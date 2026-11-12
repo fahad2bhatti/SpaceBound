@@ -21,6 +21,7 @@ export type Settings = {
   leftHanded: boolean;
   /** Touch button and stick scale, 0.8 to 1.4. */
   touchScale: number;
+  haptics: boolean;
 };
 
 export type Resume = {
@@ -85,6 +86,7 @@ export function defaultSave(): SaveData {
       assist: typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches === true,
       leftHanded: false,
       touchScale: 1,
+      haptics: true,
     },
     stats: { launches: 0, landings: 0 },
     hints: [],
@@ -130,6 +132,7 @@ function sanitize(raw: Partial<SaveData>): SaveData {
     assist: typeof raw.settings?.assist === "boolean" ? raw.settings.assist : base.settings.assist,
     leftHanded: typeof raw.settings?.leftHanded === "boolean" ? raw.settings.leftHanded : base.settings.leftHanded,
     touchScale: clamp(raw.settings?.touchScale ?? base.settings.touchScale, 0.8, 1.4),
+    haptics: typeof raw.settings?.haptics === "boolean" ? raw.settings.haptics : base.settings.haptics,
     quality:
       raw.settings?.quality === "low" || raw.settings?.quality === "high"
         ? raw.settings.quality

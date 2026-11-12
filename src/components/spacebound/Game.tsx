@@ -38,6 +38,7 @@ import {
   type Upgrade,
 } from "@/game/catalog";
 import { Spacebound, type Snap } from "@/game/engine";
+import { haptic } from "@/game/haptics";
 import { pickHint } from "@/game/hints";
 import { placeWaypoint } from "@/game/waypoint";
 // phone-fix-map-v1
@@ -69,10 +70,11 @@ function Cmd({
 }
 
 // menu-compact-v1
-function Panel({ children, compact }: { children: React.ReactNode; compact?: boolean }) {
+// screens-compact-v1
+function Panel({ children, compact, cls }: { children: React.ReactNode; compact?: boolean; cls?: string }) {
   return (
     <aside
-      className={"pointer-events-auto flex max-h-full w-full flex-col gap-4 overflow-y-auto bg-bg/90 p-5 backdrop-blur-md sm:max-w-md sm:border-r sm:border-line sm:p-8" + (compact ? " sb-panel-menu" : "")}
+      className={"pointer-events-auto flex max-h-full w-full flex-col gap-4 overflow-y-auto bg-bg/90 p-5 backdrop-blur-md sm:max-w-md sm:border-r sm:border-line sm:p-8" + (compact ? " sb-panel-menu" : " sb-panel" + (cls ? " " + cls : ""))}
     >
       {children}
     </aside>
@@ -214,7 +216,12 @@ export function Game() {
               type="button"
               aria-label="Pause menu"
               className="pointer-events-auto flex min-h-14 min-w-14 touch-none select-none items-center justify-center rounded-xl border border-line bg-bg/80 px-4 active:bg-primary/30"
-              onClick={() => act((e) => e.escape())}
+              onClick={() =>
+                act((e) => {
+                  haptic.tap();
+                  e.escape();
+                })
+              }
             >
               <PauseIcon className="size-6" />
             </button>
@@ -224,6 +231,7 @@ export function Game() {
               className="pointer-events-auto flex min-h-14 min-w-14 touch-none select-none items-center justify-center rounded-xl border border-line bg-bg/80 px-4 active:bg-primary/30"
               onClick={() =>
                 act((e) => {
+                  haptic.tap();
                   e.pause();
                   e.open("solar");
                 })
@@ -241,7 +249,12 @@ export function Game() {
                     ? "pointer-events-auto flex min-h-14 min-w-14 touch-none select-none items-center justify-center rounded-xl border border-primary bg-primary/30 px-3 font-display text-sm tracking-wide text-primary"
                     : "pointer-events-auto flex min-h-14 min-w-14 touch-none select-none items-center justify-center rounded-xl border border-line bg-bg/80 px-3 font-display text-sm tracking-wide"
                 }
-                onClick={() => act((e) => e.setSettings({ assist: !snap.settings.assist }))}
+                onClick={() =>
+                  act((e) => {
+                    haptic.tap();
+                    e.setSettings({ assist: !snap.settings.assist });
+                  })
+                }
               >
                 ASSIST
               </button>
@@ -324,7 +337,7 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
   const owned = snap.owned.includes(ship.id);
   return (
     <div className="flex h-full flex-col sm:flex-row-reverse">
-      <aside className="pointer-events-auto flex max-h-[58%] w-full flex-col gap-3 overflow-y-auto bg-bg/90 p-4 backdrop-blur-md sm:max-h-full sm:max-w-md sm:border-l sm:border-line sm:p-6">
+      <aside className="pointer-events-auto flex max-h-[58%] w-full flex-col gap-3 overflow-y-auto bg-bg/90 p-4 backdrop-blur-md sm:max-h-full sm:max-w-md sm:border-l sm:border-line sm:p-6 sb-side">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="font-display text-sm tracking-widest text-primary">{ship.category}</p>
@@ -336,14 +349,16 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
         </div>
         <p className="text-sm text-muted">{ship.blurb}</p>
         <p className="font-display text-lg text-primary">{formatInt(snap.credits)} CR</p>
-        <Stat label="Range" value={km(stats.range)} />
+        <div className="sb-stats grid gap-3">
+<Stat label="Range" value={km(stats.range)} />
         <Stat label="Max speed" value={mps(stats.speed)} />
         <Stat label="Fuel" value={`${Math.round(stats.fuel)} units`} />
         <Stat label="Thrust" value={stats.accel.toFixed(1)} />
         <Stat label="Crew" value={String(ship.crew)} icon={<Users className="size-4" />} />
         <Stat label="Cargo" value={String(ship.cargo)} />
         <Stat label="Life support" value={formatClock(stats.life)} icon={<Timer className="size-4" />} />
-        <p className="text-xs text-muted">Drag to rotate. Scroll to zoom. Nav upgrades add 5% range per level and cannot skip a planet tier.</p>
+</div>
+        <p className="sb-hide-short text-xs text-muted">Drag to rotate. Scroll to zoom. Nav upgrades add 5% range per level and cannot skip a planet tier.</p>
         {owned ? (
           <Cmd tone="accent" onClick={() => act((e) => e.selectShip(ship.id))}>
             {snap.selected === ship.id ? "On the pad" : "Select ship"} <Rocket className="size-5" />
@@ -367,7 +382,7 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
             <UpgradeRow slot="nav" label="Navigation" level={up.nav} ship={ship.id} credits={snap.credits} act={act} />
           </div>
         )}
-        <div className="grid gap-2">
+        <div className="sb-grid-2 grid gap-2">
           {SHIP_LIST.map((s) => (
             <button
               key={s.id}
@@ -436,7 +451,7 @@ function Stat({ label, value, icon }: { label: string; value: string; icon?: Rea
 function Missions({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => void }) {
   return (
     <div className="flex h-full">
-      <Panel>
+      <Panel cls="sb-panel-wide">
         <div className="flex items-center justify-between">
           <h2 className="font-display text-4xl uppercase">Missions</h2>
           <button type="button" className="min-h-11 min-w-11 border border-line px-3" onClick={() => act((e) => e.back())}>
@@ -444,7 +459,7 @@ function Missions({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void
           </button>
         </div>
         <p className="text-sm text-muted">Active route: {activeMission(snap.done)?.name ?? "Catalog complete"}.</p>
-        <div className="grid gap-3">
+        <div className="sb-grid-2 grid gap-3">
           {MISSIONS.map((m) => {
             const state = missionState(snap.done, m.id);
             return (
@@ -482,14 +497,14 @@ function Solar({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
   const gate = gateShip(focus.route);
   return (
     <div className="flex h-full flex-col sm:flex-row-reverse">
-      <aside className="pointer-events-auto max-h-[62%] w-full overflow-y-auto bg-bg/90 p-4 backdrop-blur-md sm:max-h-full sm:max-w-md sm:border-l sm:border-line sm:p-6">
+      <aside className="pointer-events-auto max-h-[62%] w-full overflow-y-auto bg-bg/90 p-4 backdrop-blur-md sm:max-h-full sm:max-w-md sm:border-l sm:border-line sm:p-6 sb-side">
         <div className="flex items-center justify-between">
           <h2 className="font-display text-4xl uppercase">Solar chart</h2>
           <button type="button" className="min-h-11 min-w-11 border border-line px-3" onClick={() => act((e) => e.back())}>
             <X className="size-5" />
           </button>
         </div>
-        <p className="mt-2 text-sm text-muted">Drag to orbit the chart. Click a planet. The orrery is not to scale. Route ratings are.</p>
+        <p className="sb-hide-short mt-2 text-sm text-muted">Drag to orbit the chart. Click a planet. The orrery is not to scale. Route ratings are.</p>
         <p className="mt-3 font-display text-sm tracking-widest text-primary">{SHIPS[snap.selected].name}</p>
         <p className="text-sm text-fg">Certified range {km(stats.range)}</p>
         <div className="mt-3 border border-line p-3">
@@ -509,7 +524,7 @@ function Solar({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
             </Cmd>
           </div>
         </div>
-        <div className="mt-3 grid gap-2">
+        <div className="sb-grid-2 mt-3 grid gap-2">
           {DEST_LIST.map((id) => (
             <DestRow key={id} id={id} snap={snap} act={act} />
           ))}
@@ -554,7 +569,7 @@ function SettingsPanel({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) =>
   const s = snap.settings;
   return (
     <div className="flex h-full">
-      <Panel>
+      <Panel cls="sb-panel-wide sb-settings">
         <div className="flex items-center justify-between">
           <h2 className="font-display text-4xl uppercase">Settings</h2>
           <button type="button" className="min-h-11 min-w-11 border border-line px-3" onClick={() => act((e) => e.back())}>
@@ -600,6 +615,13 @@ function SettingsPanel({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) =>
           onClick={() => act((e) => e.setSettings({ leftHanded: !s.leftHanded }))}
         >
           Left-handed controls {s.leftHanded ? "on" : "off"}
+        </button>
+        <button
+          type="button"
+          className="min-h-11 border border-line px-3 text-left"
+          onClick={() => act((e) => e.setSettings({ haptics: !s.haptics }))}
+        >
+          Haptics {s.haptics ? "on" : "off"}
         </button>
         <label className="grid gap-2 text-sm text-muted">
           Touch button size {Math.round(s.touchScale * 100)}%
@@ -663,7 +685,7 @@ function SettingsPanel({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) =>
 function Credits({ act }: { act: (fn: (e: Spacebound) => void) => void }) {
   return (
     <div className="flex h-full">
-      <Panel>
+      <Panel cls="sb-panel-wide">
         <div className="flex items-center justify-between">
           <h2 className="font-display text-4xl uppercase">Credits</h2>
           <button type="button" className="min-h-11 min-w-11 border border-line px-3" onClick={() => act((e) => e.back())}>
@@ -688,10 +710,10 @@ function Credits({ act }: { act: (fn: (e: Spacebound) => void) => void }) {
 function Pause({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => void }) {
   return (
     <div className="flex h-full items-center justify-center p-4">
-      <div className="pointer-events-auto w-full max-w-md border border-line bg-bg/95 p-6">
+      <div className="pointer-events-auto w-full max-w-md border border-line bg-bg/95 p-6 sb-pause">
         <h2 className="font-display text-4xl uppercase">Hold</h2>
         <p className="mt-2 text-sm text-muted">{snap.objective}</p>
-        <div className="mt-4 grid gap-2">
+        <div className="sb-grid-2 mt-4 grid gap-2">
           <Cmd tone="accent" onClick={() => act((e) => e.resumePlay())}>
             Resume <Play className="size-5" />
           </Cmd>
@@ -962,6 +984,7 @@ function Stick({ onChange, scale }: { onChange: (x: number, y: number) => void; 
       onPointerDown={(e) => {
         if (activeId.current !== null) return;
         e.preventDefault();
+        haptic.tap();
         activeId.current = e.pointerId;
         e.currentTarget.setPointerCapture(e.pointerId);
         emit(e.clientX, e.clientY);
@@ -1008,6 +1031,7 @@ function TouchBtn({
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         e.preventDefault();
+        haptic.tap();
         onDown?.();
         if (hold) onHold?.(true);
       }}

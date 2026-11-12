@@ -70,3 +70,63 @@
   .sb-panel-menu .sb-menu-grid button { justify-content: center; text-align: center; font-size: 0.95rem; }
   .sb-panel-menu .sb-menu-grid svg { display: none; }
 }
+
+/* screens-compact-v1 */
+@media (max-height: 520px) and (orientation: landscape) {
+  .sb-panel,
+  .sb-side {
+    width: 100%;
+    max-width: 21rem;
+    max-height: 100%;
+    gap: 0.5rem;
+    padding: 0.6rem 0.9rem;
+    border: 0;
+    backdrop-filter: none;
+  }
+  .sb-panel-wide { max-width: 30rem; }
+  .sb-side { max-width: 28rem; margin-left: auto; }
+  .sb-panel {
+    background: linear-gradient(
+      to right,
+      color-mix(in srgb, var(--color-bg) 94%, transparent) 0%,
+      color-mix(in srgb, var(--color-bg) 88%, transparent) 80%,
+      transparent 100%
+    );
+  }
+  .sb-side {
+    background: linear-gradient(
+      to left,
+      color-mix(in srgb, var(--color-bg) 94%, transparent) 0%,
+      color-mix(in srgb, var(--color-bg) 88%, transparent) 80%,
+      transparent 100%
+    );
+  }
+  .sb-hide-short { display: none; }
+
+  .sb-panel h2, .sb-side h2, .sb-pause h2 { font-size: 1.75rem; line-height: 1; }
+  .sb-panel h3, .sb-side h3 { font-size: 1.15rem; line-height: 1.1; }
+  .sb-panel p, .sb-side p, .sb-pause p { font-size: 0.8rem; line-height: 1.3; }
+  .sb-panel article { padding: 0.5rem; }
+  .sb-panel article p { margin-top: 0.15rem; }
+
+  .sb-panel button, .sb-side button, .sb-pause button {
+    min-height: 2.25rem;
+    padding-top: 0.2rem;
+    padding-bottom: 0.2rem;
+    font-size: 0.95rem;
+  }
+  .sb-side button .font-display { font-size: 1rem; }
+
+  .sb-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
+  .sb-stats { display: grid; grid-template-columns: 1fr 1fr; column-gap: 0.9rem; row-gap: 0; }
+  .sb-stats .font-display { font-size: 1rem; }
+
+  .sb-settings { display: grid; grid-template-columns: 1fr 1fr; align-content: start; gap: 0.5rem 0.75rem; }
+  .sb-settings > :first-child,
+  .sb-settings > p,
+  .sb-settings > .grid { grid-column: 1 / -1; }
+  .sb-settings label { gap: 0.25rem; font-size: 0.8rem; }
+
+  .sb-pause { max-width: 30rem; padding: 0.75rem; }
+  .sb-pause .sb-grid-2 { margin-top: 0.5rem; }
+}

@@ -38,6 +38,7 @@ import {
   type Upgrade,
 } from "@/game/catalog";
 import { Spacebound, type Snap } from "@/game/engine";
+import { pickHint } from "@/game/hints";
 import { placeWaypoint } from "@/game/waypoint";
 // phone-fix-map-v1
 import { App as CapApp } from "@capacitor/app";
@@ -182,6 +183,7 @@ export function Game() {
         {snap && (snap.screen === "play" || snap.screen === "pause") && snap.screen === "play" && (
           <Hud snap={snap} act={act} />
         )}
+        {snap && snap.screen === "play" && !snap.modal && <Tips snap={snap} act={act} touch={touchUi} />}
         {snap?.toast && (
           <p className="absolute left-1/2 top-[4.5rem] max-w-md -translate-x-1/2 border border-line bg-bg/90 px-4 py-2 text-center text-sm text-fg">
             {snap.toast}
@@ -190,7 +192,7 @@ export function Game() {
         {snap && snap.modal && (
           <div className="pointer-events-auto absolute inset-0 flex items-center justify-center bg-bg/70 p-4">
             <div className="w-full max-w-md border border-line bg-surface p-6">
-              <p className="font-display tracking-widest text-accent">MISSION COMPLETE</p>
+              <p className="font-display tracking-widest text-accent">{snap.modal.kicker ?? "MISSION COMPLETE"}</p>
               <h2 className="mt-2 font-display text-4xl uppercase">{snap.modal.title}</h2>
               <p className="mt-3 text-sm leading-relaxed text-muted">{snap.modal.text}</p>
               <p className="mt-4 font-display text-2xl text-primary">+{formatInt(snap.modal.reward)} CR</p>
@@ -229,6 +231,21 @@ export function Game() {
             >
               <MapIcon className="size-6" />
             </button>
+            {snap.phase === "flight" && (
+              <button
+                type="button"
+                aria-label="Landing assist"
+                aria-pressed={snap.settings.assist}
+                className={
+                  snap.settings.assist
+                    ? "pointer-events-auto flex min-h-14 min-w-14 touch-none select-none items-center justify-center rounded-xl border border-primary bg-primary/30 px-3 font-display text-sm tracking-wide text-primary"
+                    : "pointer-events-auto flex min-h-14 min-w-14 touch-none select-none items-center justify-center rounded-xl border border-line bg-bg/80 px-3 font-display text-sm tracking-wide"
+                }
+                onClick={() => act((e) => e.setSettings({ assist: !snap.settings.assist }))}
+              >
+                ASSIST
+              </button>
+            )}
           </div>
         )}
         {snap && snap.screen === "play" && snap.phase === "flight" && !snap.modal && (
@@ -570,6 +587,34 @@ function SettingsPanel({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) =>
         >
           Ambient drone {s.ambient ? "on" : "off"}
         </button>
+        <button
+          type="button"
+          className="min-h-11 border border-line px-3 text-left"
+          onClick={() => act((e) => e.setSettings({ assist: !s.assist }))}
+        >
+          Landing assist {s.assist ? "on" : "off"}
+        </button>
+        <button
+          type="button"
+          className="min-h-11 border border-line px-3 text-left"
+          onClick={() => act((e) => e.setSettings({ leftHanded: !s.leftHanded }))}
+        >
+          Left-handed controls {s.leftHanded ? "on" : "off"}
+        </button>
+        <label className="grid gap-2 text-sm text-muted">
+          Touch button size {Math.round(s.touchScale * 100)}%
+          <input
+            type="range"
+            min={0.8}
+            max={1.4}
+            step={0.1}
+            value={s.touchScale}
+            onChange={(e) => act((en) => en.setSettings({ touchScale: Number(e.target.value) }))}
+          />
+        </label>
+        <button type="button" className="min-h-11 border border-line px-3 text-left" onClick={() => act((e) => e.replayHints())}>
+          Replay first-time tips
+        </button>
         <label className="grid gap-2 text-sm text-muted">
           Look sensitivity
           <input
@@ -737,7 +782,17 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
               : "absolute bottom-28 left-1/2 -translate-x-1/2 font-display tracking-widest text-muted"
           }
         >
-          {snap.rangeLocked ? "RANGE LOCK" : snap.braking ? "ENTRY BRAKE" : snap.envelope ? "LANDING ENVELOPE" : "FLY THE BEACON"}
+          {snap.rangeLocked
+            ? "RANGE LOCK"
+            : snap.braking
+              ? "ENTRY BRAKE"
+              : snap.assistActive
+                ? snap.envelope
+                  ? "ASSIST · LANDING ENVELOPE"
+                  : "LANDING ASSIST"
+                : snap.envelope
+                  ? "LANDING ENVELOPE"
+                  : "FLY THE BEACON"}
         </p>
       )}
       {surface && snap.phase === "surface" && (
@@ -759,6 +814,49 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
         </p>
       )}
     </>
+  );
+}
+
+function Tips({
+  snap,
+  act,
+  touch,
+}: {
+  snap: Snap;
+  act: (fn: (e: Spacebound) => void) => void;
+  touch: boolean;
+}) {
+  const hint = pickHint({
+    phase: snap.phase,
+    prompt: snap.prompt,
+    landing: snap.assistActive || (snap.envelope && snap.climb < -0.3),
+    touch,
+    seen: snap.hints,
+  });
+  const id = hint?.id ?? null;
+  const actRef = useRef(act);
+  actRef.current = act;
+  const prev = useRef<string | null>(null);
+  // A tip counts as seen once it was shown and the moment has passed (or after a few seconds).
+  useEffect(() => {
+    const last = prev.current;
+    prev.current = id;
+    if (last && last !== id) actRef.current((e) => e.markHint(last));
+    if (!id) return;
+    const t = window.setTimeout(() => actRef.current((e) => e.markHint(id)), 9000);
+    return () => window.clearTimeout(t);
+  }, [id]);
+  if (!hint) return null;
+  return (
+    <button
+      type="button"
+      className="pointer-events-auto absolute left-1/2 top-[7.5rem] max-w-[18rem] -translate-x-1/2 border border-primary bg-bg/90 px-4 py-2 text-left text-sm text-fg"
+      onClick={() => act((e) => e.markHint(hint.id))}
+    >
+      <span className="block font-display text-xs tracking-widest text-primary">TIP</span>
+      {hint.text}
+      <span className="mt-1 block text-xs text-muted">Tap to dismiss</span>
+    </button>
   );
 }
 
@@ -784,8 +882,16 @@ function CheckBtn({ on, label, onClick }: { on: boolean; label: string; onClick:
 function Touch({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => void }) {
   const flight = snap.phase === "flight";
   const setStick = (x: number, y: number) => act((e) => e.input.setTouch({ x, y }));
+  const scale = snap.settings.touchScale;
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-4 pb-24">
+    <div
+      className={
+        snap.settings.leftHanded
+          ? "pointer-events-none absolute inset-x-0 bottom-0 flex flex-row-reverse items-end justify-between p-4 pb-24"
+          : "pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-4 pb-24"
+      }
+      style={{ "--ts": scale } as React.CSSProperties}
+    >
       {flight ? (
         <div className="pointer-events-auto grid grid-cols-3 gap-2">
           <span />
@@ -796,7 +902,7 @@ function Touch({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
           <TouchBtn label="▶" hold onHold={(v) => act((e) => e.input.setTouch({ x: v ? 1 : 0 }))} />
         </div>
       ) : (
-        <Stick onChange={setStick} />
+        <Stick onChange={setStick} scale={scale} />
       )}
       <div className="pointer-events-auto grid grid-cols-2 gap-3">
         <TouchBtn label="E" onDown={() => act((e) => e.input.pulseInteract())} />
@@ -820,7 +926,7 @@ function Touch({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
 }
 
 // joystick-fix-v1
-function Stick({ onChange }: { onChange: (x: number, y: number) => void }) {
+function Stick({ onChange, scale }: { onChange: (x: number, y: number) => void; scale: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const activeId = useRef<number | null>(null);
   const [knob, setKnob] = useState({ x: 0, y: 0 });
@@ -850,7 +956,8 @@ function Stick({ onChange }: { onChange: (x: number, y: number) => void }) {
   return (
     <div
       ref={ref}
-      className="pointer-events-auto relative h-36 w-36 touch-none select-none rounded-full border border-line bg-bg/70"
+      className="pointer-events-auto relative touch-none select-none rounded-full border border-line bg-bg/70"
+      style={{ width: `${9 * scale}rem`, height: `${9 * scale}rem` }}
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         if (activeId.current !== null) return;
@@ -867,10 +974,12 @@ function Stick({ onChange }: { onChange: (x: number, y: number) => void }) {
       onLostPointerCapture={release}
     >
       <span
-        className="pointer-events-none absolute left-1/2 top-1/2 h-14 w-14 rounded-full bg-primary"
+        className="pointer-events-none absolute left-1/2 top-1/2 rounded-full bg-primary"
         style={{
+          width: `${3.5 * scale}rem`,
+          height: `${3.5 * scale}rem`,
           transform:
-            "translate(calc(-50% + " + knob.x * 36 + "px), calc(-50% + " + -knob.y * 36 + "px))",
+            "translate(calc(-50% + " + knob.x * 36 * scale + "px), calc(-50% + " + -knob.y * 36 * scale + "px))",
         }}
       />
     </div>
@@ -894,7 +1003,8 @@ function TouchBtn({
   return (
     <button
       type="button"
-      className="min-h-16 min-w-16 touch-none select-none rounded-xl border border-line bg-bg/80 px-4 font-display text-lg uppercase active:bg-primary/30"
+      className="touch-none select-none rounded-xl border border-line bg-bg/80 px-4 font-display text-lg uppercase active:bg-primary/30"
+      style={{ minHeight: "calc(4rem * var(--ts, 1))", minWidth: "calc(4rem * var(--ts, 1))" }}
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         e.preventDefault();

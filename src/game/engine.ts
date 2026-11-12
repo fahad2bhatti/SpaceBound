@@ -35,6 +35,7 @@ import {
   type ShipRig,
   type Terrain,
 } from "./models";
+import { haptic, setHapticsEnabled } from "./haptics";
 import { gradeLanding } from "./landing";
 import { defaultSave, loadSave, writeSave, type Quality, type SaveData, type Settings } from "./save";
 
@@ -142,6 +143,8 @@ export class Spacebound {
   private phase: Phase = "pad";
   private camMode: CamMode = "chase";
   private view: "menu" | "garage" | "solar" | "pad" | "flight" | "surface" = "menu";
+  // back-fix-v1: panel kahan se khola gaya (back ke liye)
+  private backTo: Screen | null = null;
   private modalQ: Modal[] = [];
   private toastText: string | null = null;
   private toastT = 0;
@@ -267,6 +270,7 @@ export class Spacebound {
     this.audio.setVolume(this.save.settings.volume);
     this.audio.setMuted(this.save.settings.muted);
     this.audio.setAmbient(this.save.settings.ambient);
+    setHapticsEnabled(this.save.settings.haptics);
     this.astro = buildAstronaut(this.assets);
     this.lamp = new THREE.SpotLight(0xdde7ff, 0, 16, 0.55, 0.45, 1);
     this.lamp.position.set(0, 1.55, 0.2);
@@ -459,6 +463,9 @@ export class Spacebound {
     this.audio.ui();
     this.confirmNew = false;
     this.confirmReset = false;
+    if (screen === "garage" || screen === "solar" || screen === "missions" || screen === "settings" || screen === "credits") {
+      if (this.screen === "menu" || this.screen === "pause" || this.screen === "play") this.backTo = this.screen;
+    }
     if (screen === "menu") {
       this.screen = "menu";
       this.input.exitLock();
@@ -491,6 +498,18 @@ export class Spacebound {
 
   back(): void {
     this.audio.ui();
+    const to = this.backTo;
+    this.backTo = null;
+    if (to === "menu") {
+      this.open("menu");
+      return;
+    }
+    if (to === "pause") {
+      this.resumePlay();
+      this.screen = "pause";
+      this.notifyNow = true;
+      return;
+    }
     if (this.save.started && (this.phase === "flight" || this.phase.startsWith("surface") || this.phase === "pad" || this.phase === "cockpit")) {
       this.resumePlay();
       return;
@@ -686,6 +705,7 @@ export class Spacebound {
     this.audio.setVolume(this.save.settings.volume);
     this.audio.setMuted(this.save.settings.muted);
     this.audio.setAmbient(this.save.settings.ambient);
+    setHapticsEnabled(this.save.settings.haptics);
     if (partial.quality) this.applyQuality();
     this.persist(true);
     this.notifyNow = true;
@@ -1423,6 +1443,8 @@ export class Spacebound {
     const assisted = this.save.settings.assist;
     const { grade, bonus } = gradeLanding(descent, drift, fuelFrac, assisted, body);
     this.save.credits += bonus;
+    if (grade === "B") haptic.warn();
+    else haptic.success();
     this.modalQ.push({
       kicker: "LANDING REPORT",
       title: `Grade ${grade}`,
@@ -1456,6 +1478,7 @@ export class Spacebound {
       this.fuel = Math.max(6, this.fuel - 10);
       this.audio.alarm();
       this.flash = 0.5;
+      haptic.heavy();
       this.toast("Hard impact. Kill more speed before the beacon.");
       return;
     }
@@ -1488,6 +1511,7 @@ export class Spacebound {
     this.flightPos.copy(center).addScaledVector(up, def.radius + 1.05);
     this.flightV.addScaledVector(up, descent + 1.5);
     this.flightV.multiplyScalar(0.45);
+    haptic.warn();
     this.toast(inside ? "Too fast — hover and bleed speed." : "Outside the beacon pad.");
   }
 

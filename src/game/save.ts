@@ -6,6 +6,7 @@ import {
   type ShipId,
   type Upgrade,
 } from "./catalog";
+import { HINT_IDS } from "./hints";
 
 export type Quality = "low" | "medium" | "high";
 
@@ -16,6 +17,10 @@ export type Settings = {
   sens: number;
   ambient: boolean;
   assist: boolean;
+  /** Mirror the touch controls (stick/D-pad on the right, buttons on the left). */
+  leftHanded: boolean;
+  /** Touch button and stick scale, 0.8 to 1.4. */
+  touchScale: number;
 };
 
 export type Resume = {
@@ -47,6 +52,8 @@ export type SaveData = {
   destination: DestId;
   settings: Settings;
   stats: { launches: number; landings: number };
+  /** First-time tips the player has already seen (see hints.ts). */
+  hints: string[];
   resume: Resume | null;
 };
 
@@ -72,12 +79,15 @@ export function defaultSave(): SaveData {
     settings: {
       muted: false,
       volume: 0.7,
-      quality: "medium",
+      quality: typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches === true ? "low" : "medium",
       sens: 0.0022,
       ambient: true,
       assist: typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches === true,
+      leftHanded: false,
+      touchScale: 1,
     },
     stats: { launches: 0, landings: 0 },
+    hints: [],
     resume: null,
   };
 }
@@ -118,6 +128,8 @@ function sanitize(raw: Partial<SaveData>): SaveData {
     volume: clamp(raw.settings?.volume ?? base.settings.volume, 0, 1),
     sens: clamp(raw.settings?.sens ?? base.settings.sens, 0.0008, 0.006),
     assist: typeof raw.settings?.assist === "boolean" ? raw.settings.assist : base.settings.assist,
+    leftHanded: typeof raw.settings?.leftHanded === "boolean" ? raw.settings.leftHanded : base.settings.leftHanded,
+    touchScale: clamp(raw.settings?.touchScale ?? base.settings.touchScale, 0.8, 1.4),
     quality:
       raw.settings?.quality === "low" || raw.settings?.quality === "high"
         ? raw.settings.quality
@@ -136,6 +148,12 @@ function sanitize(raw: Partial<SaveData>): SaveData {
     dest === "neptune"
       ? dest
       : "orbit";
+  // Saves from before tips existed: players who already launched have seen enough.
+  const hints = Array.isArray(raw.hints)
+    ? raw.hints.filter((x): x is string => typeof x === "string")
+    : (raw.stats?.launches ?? 0) > 0
+      ? [...HINT_IDS]
+      : [];
   return {
     version: 1,
     started: Boolean(raw.started),
@@ -156,6 +174,7 @@ function sanitize(raw: Partial<SaveData>): SaveData {
       launches: Math.max(0, raw.stats?.launches ?? 0),
       landings: Math.max(0, raw.stats?.landings ?? 0),
     },
+    hints,
     resume: raw.resume ?? null,
   };
 }

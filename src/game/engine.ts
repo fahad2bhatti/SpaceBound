@@ -89,6 +89,7 @@ export type Snap = {
   rangeLocked: boolean;
   braking: boolean;
   assistActive: boolean;
+  hints: string[];
   cam: CamMode;
   flash: number;
   sampleCount: number;
@@ -376,6 +377,7 @@ export class Spacebound {
       rangeLocked: this.outOfRange(),
       braking: this.phase === "flight" && this.velLen() > this.speedCap() * 1.08,
       assistActive: this.phase === "flight" && this.assistActive,
+      hints: this.save.hints,
       cam: this.camMode,
       flash: this.flash,
       sampleCount: this.save.samples[this.surfaceBody] ?? 0,
@@ -403,8 +405,10 @@ export class Spacebound {
 
   newGame(): void {
     const settings = { ...this.save.settings };
+    const hints = [...this.save.hints];
     this.save = defaultSave();
     this.save.settings = settings;
+    this.save.hints = hints;
     this.save.started = true;
     this.confirmNew = false;
     this.modalQ = [];
@@ -530,8 +534,10 @@ export class Spacebound {
 
   resetProgress(): void {
     const settings = { ...this.save.settings };
+    const hints = [...this.save.hints];
     this.save = defaultSave();
     this.save.settings = settings;
+    this.save.hints = hints;
     this.confirmReset = false;
     this.modalQ = [];
     this.syncRuntimeFromShip(true);
@@ -658,6 +664,20 @@ export class Spacebound {
 
   focusChart(id: DestId): void {
     this.chartFocus = id;
+    this.notifyNow = true;
+  }
+
+  markHint(id: string): void {
+    if (this.save.hints.includes(id)) return;
+    this.save.hints = [...this.save.hints, id];
+    this.persist(true);
+    this.notifyNow = true;
+  }
+
+  replayHints(): void {
+    this.save.hints = [];
+    this.persist(true);
+    this.toast("Tips will show again.");
     this.notifyNow = true;
   }
 

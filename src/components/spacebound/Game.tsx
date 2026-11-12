@@ -187,13 +187,13 @@ export function Game() {
         )}
         {snap && snap.screen === "play" && !snap.modal && <Tips snap={snap} act={act} touch={touchUi} />}
         {snap?.toast && (
-          <p className="absolute left-1/2 top-[4.5rem] max-w-md -translate-x-1/2 border border-line bg-bg/90 px-4 py-2 text-center text-sm text-fg">
+          <p className="absolute left-1/2 top-[4.5rem] max-w-md -translate-x-1/2 border border-line bg-bg/90 px-4 py-2 text-center text-sm text-fg sb-toast">
             {snap.toast}
           </p>
         )}
         {snap && snap.modal && (
           <div className="pointer-events-auto absolute inset-0 flex items-center justify-center bg-bg/70 p-4">
-            <div className="w-full max-w-md border border-line bg-surface p-6">
+            <div className="w-full max-w-md border border-line bg-surface p-6 sb-modal">
               <p className="font-display tracking-widest text-accent">{snap.modal.kicker ?? "MISSION COMPLETE"}</p>
               <h2 className="mt-2 font-display text-4xl uppercase">{snap.modal.title}</h2>
               <p className="mt-3 text-sm leading-relaxed text-muted">{snap.modal.text}</p>
@@ -211,7 +211,7 @@ export function Game() {
         )}
         {snap && touchUi && snap.screen === "play" && !snap.modal && <Touch snap={snap} act={act} />}
         {snap && touchUi && snap.screen === "play" && !snap.modal && (
-          <div className="absolute left-1/2 top-3 flex -translate-x-1/2 gap-3">
+          <div className="absolute left-1/2 top-3 flex -translate-x-1/2 gap-3 sb-topbtns">
             <button
               type="button"
               aria-label="Pause menu"
@@ -745,23 +745,23 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
   const cockpit = snap.phase === "cockpit" || snap.phase === "surfaceCockpit";
   return (
     <>
-      <div className="absolute left-4 top-4 max-w-xs border border-line bg-bg/80 p-3 backdrop-blur-md sm:left-6 sm:top-6">
+      <div className="absolute left-4 top-4 max-w-xs border border-line bg-bg/80 p-3 backdrop-blur-md sm:left-6 sm:top-6 sb-obj">
         <p className="font-display text-xs tracking-widest text-accent">OBJECTIVE</p>
         <p className="font-display text-2xl uppercase leading-none">{snap.objective}</p>
-        <p className="mt-2 text-xs leading-relaxed text-muted">{snap.detail}</p>
+        <p className="sb-obj-detail mt-2 text-xs leading-relaxed text-muted">{snap.detail}</p>
       </div>
-      <div className="absolute right-4 top-4 border border-line bg-bg/80 p-3 text-right backdrop-blur-md sm:right-6 sm:top-6">
+      <div className="absolute right-4 top-4 border border-line bg-bg/80 p-3 text-right backdrop-blur-md sm:right-6 sm:top-6 sb-dest">
         <p className="font-display text-xs tracking-widest text-primary">{DESTS[snap.destination].name}</p>
         <p className="font-display text-xl">{formatClock(snap.life)} LIFE</p>
         {flight && <p className="text-xs text-muted">{Math.round(snap.destDist)} su to target</p>}
       </div>
       {snap.countdown !== null && (
-        <p className="absolute left-1/2 top-24 -translate-x-1/2 font-display text-7xl text-accent">{snap.countdown}</p>
+        <p className="absolute left-1/2 top-24 -translate-x-1/2 font-display text-7xl text-accent sb-countdown">{snap.countdown}</p>
       )}
       {cockpit && (
-        <div className="pointer-events-auto absolute bottom-24 left-1/2 w-full max-w-md -translate-x-1/2 border border-line bg-bg/90 p-4 sm:bottom-8">
+        <div className="pointer-events-auto absolute bottom-24 left-1/2 w-full max-w-md -translate-x-1/2 border border-line bg-bg/90 p-4 sm:bottom-8 sb-preflight">
           <p className="font-display tracking-widest text-primary">PREFLIGHT</p>
-          <div className="mt-3 grid gap-2">
+          <div className="sb-grid-2 mt-3 grid gap-2">
             <CheckBtn on={snap.checks.fuel} label={`Tanks ${Math.round(fuelPct)}%`} onClick={() => act((e) => e.confirmCheck("fuel"))} />
             <CheckBtn on={snap.checks.eng} label="Arm engines" onClick={() => act((e) => e.confirmCheck("eng"))} />
             <CheckBtn
@@ -778,11 +778,11 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
               </Cmd>
             )}
           </div>
-          <p className="mt-3 text-xs text-muted">W/S throttle · A/D yaw left/right · ↑/↓ pitch · Space/Shift RCS · V level wings · C camera · Esc hold</p>
+          <p className="sb-hide-short mt-3 text-xs text-muted">W/S throttle · A/D yaw left/right · ↑/↓ pitch · Space/Shift RCS · V level wings · C camera · Esc hold</p>
         </div>
       )}
       {flight && (
-        <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 gap-4 border border-line bg-bg/80 px-4 py-3 backdrop-blur-md">
+        <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 gap-4 border border-line bg-bg/80 px-4 py-3 backdrop-blur-md sb-readouts">
           <Readout label="ALT" value={km(snap.altitude)} />
           <Readout label="VEL" value={mps(snap.speed)} />
           <Readout label="CLIMB" value={mps(snap.climb)} />
@@ -800,8 +800,8 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
         <p
           className={
             snap.envelope
-              ? "absolute bottom-28 left-1/2 -translate-x-1/2 font-display tracking-widest text-primary"
-              : "absolute bottom-28 left-1/2 -translate-x-1/2 font-display tracking-widest text-muted"
+              ? "sb-status absolute bottom-28 left-1/2 -translate-x-1/2 font-display tracking-widest text-primary"
+              : "sb-status absolute bottom-28 left-1/2 -translate-x-1/2 font-display tracking-widest text-muted"
           }
         >
           {snap.rangeLocked
@@ -818,7 +818,7 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
         </p>
       )}
       {surface && snap.phase === "surface" && (
-        <div className="absolute bottom-6 left-4 border border-line bg-bg/80 p-3 backdrop-blur-md">
+        <div className="absolute bottom-6 left-4 border border-line bg-bg/80 p-3 backdrop-blur-md sb-ox">
           <p className="text-xs text-muted">OXYGEN</p>
           <p className="font-display text-3xl">{Math.round(snap.ox)}%</p>
           <p className="text-xs text-muted">Suit {snap.ox > 35 ? "nominal" : snap.ox > 15 ? "caution" : "critical"}</p>
@@ -826,12 +826,12 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
         </div>
       )}
       {snap.prompt && (
-        <p className="absolute bottom-6 left-1/2 -translate-x-1/2 border border-accent bg-bg/90 px-4 py-2 font-display text-xl uppercase tracking-wide">
+        <p className="absolute bottom-6 left-1/2 -translate-x-1/2 border border-accent bg-bg/90 px-4 py-2 font-display text-xl uppercase tracking-wide sb-prompt">
           {snap.prompt}
         </p>
       )}
       {(snap.phase === "pad" || snap.phase === "surface") && !snap.prompt && (
-        <p className="absolute bottom-6 left-1/2 hidden -translate-x-1/2 text-xs text-muted sm:block">
+        <p className="absolute bottom-6 left-1/2 hidden -translate-x-1/2 text-xs text-muted sm:block sb-hide-short">
           Click the scene to look · WASD · A turns left · E interact
         </p>
       )}
@@ -872,7 +872,7 @@ function Tips({
   return (
     <button
       type="button"
-      className="pointer-events-auto absolute left-1/2 top-[7.5rem] max-w-[18rem] -translate-x-1/2 border border-primary bg-bg/90 px-4 py-2 text-left text-sm text-fg"
+      className="pointer-events-auto absolute left-1/2 top-[7.5rem] max-w-[18rem] -translate-x-1/2 border border-primary bg-bg/90 px-4 py-2 text-left text-sm text-fg sb-tip"
       onClick={() => act((e) => e.markHint(hint.id))}
     >
       <span className="block font-display text-xs tracking-widest text-primary">TIP</span>
@@ -909,8 +909,8 @@ function Touch({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
     <div
       className={
         snap.settings.leftHanded
-          ? "pointer-events-none absolute inset-x-0 bottom-0 flex flex-row-reverse items-end justify-between p-4 pb-24"
-          : "pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-4 pb-24"
+          ? "pointer-events-none absolute inset-x-0 bottom-0 flex flex-row-reverse items-end justify-between p-4 pb-24 sb-touch"
+          : "pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-4 pb-24 sb-touch"
       }
       style={{ "--ts": scale } as React.CSSProperties}
     >

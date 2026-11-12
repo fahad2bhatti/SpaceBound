@@ -103,9 +103,9 @@ export type Snap = {
 const PAD = new THREE.Vector3(0.2, 0.38, 0.9).normalize();
 const FLIGHT_SCALE = 0.22;
 // Landing assist: active below this altitude while descending (see applyLandingAssist).
-const ASSIST_ALT = 22;
-const ASSIST_DESC_MIN = 2;
-const ASSIST_DRIFT_MIN = 2.5;
+const ASSIST_ALT = 45; // easy-flight-v1: assist ab pehle shuru hota hai
+const ASSIST_DESC_MIN = 1.8;
+const ASSIST_DRIFT_MIN = 2.2;
 const BODY_IDS: BodyId[] = ["earth", "moon", "mars", "jupiter", "saturn", "uranus", "neptune"];
 
 declare global {
@@ -232,6 +232,8 @@ export class Spacebound {
   private v5 = new THREE.Vector3();
   private basis = new THREE.Matrix4();
   private assistActive = false;
+  private steerSm = 0; // easy-flight-v1
+  private pitchSm = 0;
   private aUp = new THREE.Vector3();
   private aFwd = new THREE.Vector3();
   private aSide = new THREE.Vector3();
@@ -1240,19 +1242,23 @@ export class Spacebound {
     const surface = this.phase === "surfaceLiftoff";
     const rig = surface ? this.surfaceRig : this.padRig;
     if (!rig) return;
-    this.liftV += (surface ? 6 : 9) * dt;
+    const upright = !surface && !!rig.group.userData.upright;
+    this.liftV += (surface ? 6 : upright ? 7 + this.liftY * 0.18 : 9) * dt;
     this.liftY += this.liftV * dt;
     const base = this.baseY.get(rig) ?? rig.group.position.y;
     rig.group.position.y = base + this.liftY;
+    if (upright) rig.group.rotation.z = Math.min(1.4, this.liftY * 0.012);
     this.glow(rig, 1);
-    this.burst(rig, 16);
+    this.burst(rig, upright ? 28 : 16);
     this.audio.setThrottle(1);
     if (!this.reduce) this.trauma = Math.min(1, this.trauma + dt);
-    const back = this.v4.set(rig.group.position.x + 8, rig.group.position.y + 4, rig.group.position.z + 10);
+    const back = upright
+        ? this.v4.set(rig.group.position.x + 16, 3.5 + Math.min(this.liftY * 0.15, 18), rig.group.position.z + 20)
+        : this.v4.set(rig.group.position.x + 8, rig.group.position.y + 4, rig.group.position.z + 10);
     this.camera.position.lerp(back, 1 - Math.exp(-3 * dt));
     this.camera.lookAt(rig.group.position);
     this.applyShake();
-    if (this.liftY > (surface ? 28 : 36)) {
+    if (this.liftY > (surface ? 28 : upright ? 130 : 36)) {
       if (surface) this.enterFlightFrom(this.surfaceBody);
       else this.enterFlightFrom("earth");
     }
@@ -1298,6 +1304,8 @@ export class Spacebound {
   private updateFlight(dt: number): void {
     const rig = this.ensureFlightRig();
     this.sinceLaunch += dt;
+    const bodyE = this.dominant();
+    const altE = this.flightPos.distanceTo(this.bodyPos.get(bodyE)!) - BODIES[bodyE].radius;
     let steer = 0;
     let pitch = 0;
     if (this.input.steerOverride !== null) steer = this.input.steerOverride;
@@ -1320,18 +1328,24 @@ export class Spacebound {
     // steer-fix-v1
     // Ship nose is local +Z and the chase cam sits behind it, so rotateY(+) swings the nose to screen-LEFT.
     // A / ArrowLeft (+steer) therefore uses rotateY(+).
-    rig.group.rotateY(steer * 0.95 * dt);
+    // easy-flight-v1: input smooth ramp hota hai (jhatka nahi), chhodte hi jaldi wapas, zameen ke paas turn dheema (precision).
+    const kIn = Math.min(1, dt * 7);
+    const kOut = Math.min(1, dt * 11);
+    this.steerSm += (steer - this.steerSm) * (Math.abs(steer) > Math.abs(this.steerSm) ? kIn : kOut);
+    this.pitchSm += (pitch - this.pitchSm) * (Math.abs(pitch) > Math.abs(this.pitchSm) ? kIn : kOut);
+    const prec = THREE.MathUtils.clamp(0.55 + altE / 60, 0.55, 1);
+    rig.group.rotateY(this.steerSm * 0.95 * prec * dt);
     // rotateX(+) swings the nose down, so ArrowUp (+pitch) uses rotateX(-).
-    rig.group.rotateX(-pitch * 0.7 * dt);
-    const targetBank = -steer * 0.45; // rotateZ(+) banks right, so a left turn needs a negative bank
+    rig.group.rotateX(-this.pitchSm * 0.7 * prec * dt);
+    const targetBank = -this.steerSm * 0.45; // rotateZ(+) banks right, so a left turn needs a negative bank
     const bankDelta = (targetBank - this.bank) * Math.min(1, dt * 4);
     this.bank += bankDelta;
     rig.group.rotateZ(bankDelta);
 
     if (this.input.held("KeyW") || (this.input.override === null && this.input.touch.y > 0.3))
-      this.throttle = Math.min(1, this.throttle + dt * 0.42);
+      this.throttle = Math.min(1, this.throttle + dt * 0.9);
     if (this.input.held("KeyS") || (this.input.override === null && this.input.touch.y < -0.3))
-      this.throttle = Math.max(0, this.throttle - dt * 0.6);
+      this.throttle = Math.max(0, this.throttle - dt * 1.6);
 
     const stats = this.stats();
     const locked = this.outOfRange();
@@ -1408,8 +1422,11 @@ export class Spacebound {
     if (climb > 0.5) return;
     this.assistActive = true;
 
+    // easy-flight-v1: throttle chhodo to ship khud dheere dheere ruk'ti hai (hath me feel).
+    if (this.throttle < 0.05) this.flightV.multiplyScalar(Math.max(0, 1 - 0.4 * dt));
+
     // Level the nose to the local horizon, stronger the closer we are to the ground.
-    const t = 1 - Math.exp(-3 * THREE.MathUtils.clamp((ASSIST_ALT - alt) / 12, 0, 1) * dt);
+    const t = 1 - Math.exp(-3 * THREE.MathUtils.clamp((ASSIST_ALT - alt) / 20, 0, 1) * dt);
     this.forward(rig, this.aFwd);
     this.aFwd.addScaledVector(up, -this.aFwd.dot(up));
     if (this.aFwd.lengthSq() > 0.01) {
@@ -1424,19 +1441,19 @@ export class Spacebound {
     // Cap descent and sideways speed as the ground gets closer. Braking burns a little fuel.
     const rate = Math.min(1, dt * 8);
     let braked = false;
-    const maxDesc = ASSIST_DESC_MIN + alt * 0.25;
+    const maxDesc = ASSIST_DESC_MIN + alt * 0.18;
     if (-climb > maxDesc) {
       this.flightV.addScaledVector(up, (-maxDesc - climb) * rate);
       braked = true;
     }
-    const maxDrift = ASSIST_DRIFT_MIN + alt * 0.2;
+    const maxDrift = ASSIST_DRIFT_MIN + alt * 0.16;
     const hv = this.aHoriz.copy(this.flightV).addScaledVector(up, -this.flightV.dot(up));
     const hs = hv.length();
     if (hs > maxDrift) {
       this.flightV.addScaledVector(hv, -(1 - maxDrift / hs) * rate);
       braked = true;
     }
-    if (braked) this.fuel = Math.max(0, this.fuel - this.stats().burn * 0.5 * dt);
+    if (braked) this.fuel = Math.max(0, this.fuel - this.stats().burn * 0.25 * dt);
   }
 
   private recordLanding(body: BodyId, descent: number, drift: number, fuelFrac: number): void {
@@ -1470,7 +1487,7 @@ export class Spacebound {
       this.toast(`${def.name} has no surface. Climb away from the clouds.`);
       return;
     }
-    const inside = this.zoneArc(body) < (body === "earth" ? 4.4 : 2.8);
+    const inside = this.zoneArc(body) < (body === "earth" ? 4.4 : 2.8) * (this.save.settings.assist ? 1.5 : 1);
     if (descent > 9 || horiz > 8) {
       this.flightPos.copy(center).addScaledVector(this.zoneNormal(body, this.v2), def.radius + 14);
       this.flightV.copy(this.v2).multiplyScalar(2.2);
@@ -1605,6 +1622,15 @@ export class Spacebound {
 
   private placeCockpitCamera(rig: ShipRig, dt: number, scale: number): void {
     rig.group.updateMatrixWorld(true);
+    if (rig.group.userData.upright) {
+      // launch cam: pad se thori door, ground level, rocket ki taraf
+      const p = rig.group.position;
+      this.v1.set(p.x + 12, 2.4, p.z + 15);
+      this.v2.set(p.x, p.y + 0.6, p.z);
+      this.camera.position.lerp(this.v1, 1 - Math.exp(-3 * dt));
+      this.camera.lookAt(this.v2);
+      return;
+    }
     this.v1.copy(rig.cockpitPos).multiplyScalar(scale).applyQuaternion(rig.group.quaternion).add(rig.group.position);
     this.v2.copy(rig.lookPos).multiplyScalar(scale).applyQuaternion(rig.group.quaternion).add(rig.group.position);
     this.v3.set(this.lookX, this.lookY, 0).applyQuaternion(rig.group.quaternion);
@@ -1815,8 +1841,9 @@ export class Spacebound {
           ? this.surfaceRig
           : this.padRig;
     if (!rig) return;
-    for (const h of rig.hull) h.visible = !inside;
-    rig.interior.visible = inside;
+    const showInside = inside && !(rig === this.padRig && !!rig.group.userData.upright);
+    for (const h of rig.hull) h.visible = !showInside;
+    rig.interior.visible = showInside;
     this.astro.group.visible = this.phase === "pad" || this.phase === "surface";
   }
 
@@ -2171,7 +2198,7 @@ export class Spacebound {
       this.disposeObject(this.padRig.group);
     }
     this.padRig = buildShip(this.save.selected, this.assets);
-    this.seat(this.padRig, 0, 0, 0);
+    this.seat(this.padRig, 0, 0, 1.05, this.save.selected !== "lunar");
     this.padScene.add(this.padRig.group);
     this.baseY.set(this.padRig, this.padRig.group.position.y);
   }
@@ -2190,17 +2217,21 @@ export class Spacebound {
     return this.flightRig;
   }
 
-  private seat(rig: ShipRig, x: number, z: number, ground: number): void {
+  private seat(rig: ShipRig, x: number, z: number, ground: number, upright = false): void {
+    // upright-launch-v1
     rig.group.scale.setScalar(1);
-    rig.group.rotation.set(0, 0, 0);
+    rig.group.rotation.set(upright ? -Math.PI / 2 : 0, 0, 0);
     rig.group.position.set(x, 0, z);
     rig.group.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(rig.group);
+    const box = new THREE.Box3();
+    if (upright) for (const h of rig.hull) box.expandByObject(h);
+    else box.setFromObject(rig.group);
     rig.group.position.y += ground - box.min.y + 0.02;
     const size = new THREE.Vector3();
     box.getSize(size);
-    rig.group.userData.hx = size.x * 0.38;
-    rig.group.userData.hz = size.z * 0.38;
+    rig.group.userData.hx = upright ? Math.max(size.x * 0.38, 1.1) : size.x * 0.38;
+    rig.group.userData.hz = upright ? Math.max(size.z * 0.38, 1.1) : size.z * 0.38;
+    rig.group.userData.upright = upright;
     rig.group.updateMatrixWorld(true);
   }
 

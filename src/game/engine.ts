@@ -37,6 +37,8 @@ import {
 } from "./models";
 import { haptic, setHapticsEnabled } from "./haptics";
 import { gradeLanding } from "./landing";
+import { ContractManager } from "./contracts/manager";
+import type { ContractResult, ContractsSnap, SpotView, WorldProbe } from "./contracts/types";
 import { KIND_LABEL, PLANETS, ZONE_COLORS, type ZoneDef, type ZoneKind } from "./planets";
 import { defaultSave, loadSave, writeSave, type Quality, type SaveData, type Settings } from "./save";
 
@@ -101,6 +103,8 @@ export type Snap = {
   body: BodyId;
   freeCam: boolean;
   atmo: { name: string; label: string; depth: number; tint: string } | null;
+  /** contracts-v1 */
+  contracts: ContractsSnap;
   zones: {
     found: number;
     total: number;
@@ -171,6 +175,29 @@ export class Spacebound {
   private chartFocus: DestId = "orbit";
   private checks = { fuel: false, eng: false, nav: false };
   private notifyNow = true;
+  // ---- contracts-v1 ----------------------------------------------------------------
+  private contracts: ContractManager = new ContractManager({
+    ctx: () => ({ range: this.stats().range, ship: this.save.selected, campaignDone: this.save.done }),
+    onObjective: (label) => {
+      this.toast(`Objective complete: ${label}`);
+      this.audio.beep(880, 0.1, "triangle", 0.05);
+      haptic.success();
+      this.persist(true);
+    },
+    onFinish: (r) => this.onContractFinish(r),
+    onChange: () => {
+      this.notifyNow = true;
+    },
+  });
+  private probe: WorldProbe = {
+    phase: "menu",
+    flying: false,
+    onFoot: false,
+    speed: 0,
+    distToDest: (d) => this.pos().distanceTo(this.targetPoint(this.v5, d)),
+  };
+  private markerGroup: THREE.Group | null = null;
+  private markerKey = "";
   private hudAcc = 0;
   private reduce: boolean;
 
@@ -288,6 +315,7 @@ export class Spacebound {
     this.onChange = onChange;
     this.reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     this.save = loadSave();
+    this.contracts.bind(this.save.contracts);
     this.inspect = this.save.selected;
     this.chartFocus = this.save.destination;
     this.renderer = new THREE.WebGLRenderer({
@@ -442,6 +470,7 @@ export class Spacebound {
             }
           : null,
       zones: this.zoneSnap(),
+      contracts: this.contractsSnap(),
     };
   }
 
@@ -467,6 +496,7 @@ export class Spacebound {
     this.save.settings = settings;
     this.save.hints = hints;
     this.save.started = true;
+    this.contracts.bind(this.save.contracts);
     this.confirmNew = false;
     this.modalQ = [];
     this.landed = null;
@@ -612,6 +642,7 @@ export class Spacebound {
     this.save = defaultSave();
     this.save.settings = settings;
     this.save.hints = hints;
+    this.contracts.bind(this.save.contracts);
     this.confirmReset = false;
     this.modalQ = [];
     this.syncRuntimeFromShip(true);
@@ -954,11 +985,15 @@ export class Spacebound {
     if (this.view === "solar" && click) this.pickSolar(click);
     else if (click && this.screen === "play" && this.modalQ.length === 0) this.input.requestLock();
 
-    const simulate = this.screen === "play" && this.modalQ.length === 0;
+    const simulate = this.screen === "play" && this.modalQ.length === 0 && !this.contracts.result;
     if (this.view === "menu") this.animMenu(dt);
     else if (this.view === "garage") this.animGarage(dt, drag, wheel);
     else if (this.view === "solar") this.animSolar(dt, drag, wheel);
-    else if (simulate) this.animPlay(dt);
+    else if (simulate) {
+      this.animPlay(dt);
+      this.tickContracts(dt);
+    }
+    this.syncContractMarkers(dt);
     this.tickSpin(dt);
 
     this.saveT += dt;
@@ -1031,6 +1066,15 @@ export class Spacebound {
     }
     if (this.phase === "cockpit" || this.phase === "surfaceCockpit") {
       this.exitHatch();
+      return;
+    }
+    const spot = this.contractSpotNear();
+    if (spot) {
+      if (this.contracts.interact(spot.key)) {
+        this.audio.beep(660, 0.1, "triangle", 0.06);
+        haptic.tap();
+        this.persist(true);
+      }
       return;
     }
     if (this.phase === "pad") {
@@ -1339,7 +1383,7 @@ export class Spacebound {
     const rig = this.ensureFlightRig();
     const origin = this.bodyPos.get(body)!;
     // land-anywhere-v1: lift off from the exact spot we touched down on; with no landing this session, the zone / pad.
-    const spot = this.landed && this.landed.body === body ? this.landed.n : null;
+    const spot = this.landed && this.landed.body === body && body !== "earth" ? this.landed.n : null; // earth-pad-fix-v1
     this.landed = null;
     const n = spot ? this.v2.copy(spot) : this.zoneNormalAt(body, body === "earth" ? 0 : this.landedZone, this.v2);
     this.pos().copy(origin).addScaledVector(n, BODIES[body].radius + 2.4);
@@ -1585,6 +1629,7 @@ export class Spacebound {
       this.flash = 0.5;
       haptic.heavy();
       this.toast("Hard impact. Kill more speed before touchdown.");
+      this.contracts.handle({ type: "crash", body });
       return;
     }
     if (descent < maxD && horiz < maxH) {
@@ -1614,6 +1659,7 @@ export class Spacebound {
       this.landed = { body, n: spot };
       this.landedZone = lz ? lz.i : 0;
       this.onZoneLanded(zone);
+      this.contracts.handle({ type: "landed", body, zone: zone ? zone.z.id : null });
       this.notifyNow = true;
       return;
     }
@@ -2122,6 +2168,15 @@ export class Spacebound {
         bi = i;
       }
     }
+    // contracts-v1: a landAtZone objective pins its zone as the HUD target (once it has been found).
+    const hint = this.contracts.hintZones();
+    if (hint.length) {
+      const hi = zones.findIndex((z) => hint.includes(z.id));
+      if (hi >= 0 && this.zoneFound(body, hi)) {
+        bi = hi;
+        ba = this.zoneArcAt(body, hi);
+      }
+    }
     let target: NonNullable<Snap["zones"]>["target"] = null;
     if (bi >= 0) {
       const z = zones[bi]!;
@@ -2174,8 +2229,7 @@ export class Spacebound {
     return { x: ndc.x, y: ndc.y, cx: cam.x, cy: cam.y, behind: cam.z > 0, dist };
   }
 
-  private targetPoint(out: THREE.Vector3): THREE.Vector3 {
-    const dest = this.save.destination;
+  private targetPoint(out: THREE.Vector3, dest: DestId = this.save.destination): THREE.Vector3 {
     if (dest === "station") return out.copy(this.station);
     if (dest === "orbit") return out.copy(PAD).multiplyScalar(BODIES.earth.radius + 8);
     if (dest === "earth") return out.copy(PAD).multiplyScalar(BODIES.earth.radius);
@@ -2771,10 +2825,192 @@ export class Spacebound {
     }
   }
 
+  // ---- contracts-v1 ----------------------------------------------------------------
+
+  private tickContracts(dt: number): void {
+    if (!this.contracts.activeId) return;
+    const p = this.probe;
+    p.phase = this.phase;
+    p.flying = this.phase === "flight";
+    p.onFoot = this.phase === "surface";
+    p.speed = p.flying ? this.velLen() : 0;
+    this.contracts.tick(dt, p);
+  }
+
+  private contractsSnap(): ContractsSnap {
+    return {
+      active: this.contracts.activeView(),
+      result: this.contracts.result,
+      board: this.screen === "missions" ? this.contracts.boardView() : [],
+      acceptBlock: null,
+      xp: this.contracts.data.xp,
+    };
+  }
+
+  /** The contract spot the walker is standing on (pad crate / surface drop marker), if any. */
+  private contractSpotNear(): SpotView | null {
+    const scene = this.phase === "pad" ? "pad" : this.phase === "surface" ? "surface" : null;
+    if (!scene || !this.contracts.activeId) return null;
+    for (const sp of this.contracts.spots(scene, scene === "surface" ? this.surfaceBody : null)) {
+      if (this.walkerDistXYZ(sp.x, sp.z) < 2.1) return sp;
+    }
+    return null;
+  }
+
+  /** Keeps the 3D markers (crate, drop beacon) in step with the active contract. Cheap: rebuilds only when the key changes. */
+  private syncContractMarkers(dt: number): void {
+    let key = "";
+    let spots: SpotView[] = [];
+    const scene = this.phase === "pad" ? "pad" : this.phase === "surface" ? "surface" : null;
+    if (scene && this.screen !== "menu") {
+      spots = this.contracts.spots(scene, scene === "surface" ? this.surfaceBody : null);
+      if (spots.length) key = `${this.activeScene.uuid}|${this.contracts.rev}`;
+    }
+    if (key !== this.markerKey) {
+      this.markerKey = key;
+      this.clearMarkers();
+      if (key) this.buildMarkers(spots);
+      // briefing intel: the zone a landAtZone objective wants is marked on the scanner without a ping
+      for (const zid of this.contracts.hintZones()) {
+        if (!this.save.zonesFound.includes(zid)) this.save.zonesFound.push(zid);
+      }
+    }
+    if (this.markerGroup) {
+      const t = performance.now() * 0.001;
+      for (const c of this.markerGroup.children) {
+        c.rotation.y += dt * 0.9;
+        const bob = c.userData.bob as number | undefined;
+        if (bob !== undefined) c.position.y = bob + Math.sin(t * 2.2) * 0.08;
+      }
+    }
+  }
+
+  private clearMarkers(): void {
+    if (!this.markerGroup) return;
+    this.markerGroup.parent?.remove(this.markerGroup);
+    this.disposeObject(this.markerGroup);
+    this.markerGroup = null;
+  }
+
+  private buildMarkers(spots: SpotView[]): void {
+    const g = new THREE.Group();
+    g.name = "contractMarkers";
+    for (const sp of spots) {
+      const pickup = sp.kind === "pickup";
+      const color = pickup ? 0xffb347 : 0x5eead4;
+      const y = this.phase === "surface" && this.terrain ? this.terrain.heightAt(sp.x, sp.z) : this.phase === "pad" ? 0.02 : 0;
+      const m = new THREE.Group();
+      m.position.set(sp.x, y, sp.z);
+      const beam = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.1, 0.1, 7, 8, 1, true),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending }),
+      );
+      beam.position.y = 3.5;
+      m.add(beam);
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(1.1, 0.05, 6, 28),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8 }),
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = 0.06;
+      m.add(ring);
+      if (pickup) {
+        const crate = new THREE.Mesh(
+          new THREE.BoxGeometry(0.7, 0.7, 0.7),
+          new THREE.MeshStandardMaterial({ color: 0xd9822b, emissive: 0xffb347, emissiveIntensity: 0.55, roughness: 0.5 }),
+        );
+        crate.position.y = 0.55;
+        crate.userData.bob = 0.55;
+        m.add(crate);
+      }
+      g.add(m);
+    }
+    this.activeScene.add(g);
+    this.markerGroup = g;
+  }
+
+  private onContractFinish(r: ContractResult): void {
+    if (r.kind === "success" && r.reward) {
+      this.save.credits += r.reward.credits;
+      haptic.success();
+      this.audio.beep(660, 0.12, "triangle", 0.06);
+      this.audio.beep(990, 0.18, "triangle", 0.05);
+    } else {
+      haptic.heavy();
+      this.audio.alarm();
+    }
+    this.throttle = 0;
+    this.audio.setThrottle(0);
+    this.persist(true);
+    this.notifyNow = true;
+  }
+
+  // ---- contracts API (called from the UI) ----
+
+  acceptContract(id: string): void {
+    const err = this.contracts.accept(id);
+    if (err) {
+      this.toast(err);
+      return;
+    }
+    this.audio.ui();
+    this.toast("Contract accepted.");
+    this.persist(true);
+  }
+
+  /** Board button: draw a fresh set of contracts (not while one is active). */
+  refreshContracts(): void {
+    if (this.contracts.activeId) {
+      this.toast("Finish or abandon your contract first.");
+      return;
+    }
+    this.contracts.refreshBoard();
+    this.audio.ui();
+    this.persist(true);
+  }
+
+  abandonContract(): void {
+    const title = this.contracts.abandon();
+    if (!title) return;
+    this.toast(`Abandoned: ${title}`);
+    this.persist(true);
+  }
+
+  /** Result screen: "Back" (menu) or "Next" (missions board) after success, "Retry" after a failure. */
+  contractResultAction(kind: "retry" | "next" | "back"): void {
+    const r = this.contracts.result;
+    if (!r) return;
+    this.contracts.dismissResult();
+    if (kind === "retry") {
+      const err = this.contracts.accept(r.id, { retry: true });
+      if (err) {
+        this.toast(err);
+        this.persist(true);
+        return;
+      }
+      // Every contract starts on the pad (cargo is loaded there), so a retry takes you back to Northline.
+      if (this.phase !== "pad") {
+        this.fuel = Math.max(this.fuel, this.stats().fuel * 0.3);
+        this.life = this.stats().life;
+        this.resetFlightControls();
+        this.enterPad();
+      }
+      this.toast("Contract restarted. Load up at Northline.");
+      this.persist(true);
+      this.notifyNow = true;
+      return;
+    }
+    this.persist(true);
+    if (kind === "next") this.open("missions");
+    else this.open("menu");
+  }
+
   private prompt(): string | null {
     if (this.screen !== "play" || this.modalQ.length) return null;
     if (this.phase === "countdown" || this.phase === "surfaceCountdown") return "E  Abort countdown";
     if (this.phase === "cockpit" || this.phase === "surfaceCockpit") return "E  Exit hatch";
+    const spot = this.contractSpotNear();
+    if (spot) return `E  ${spot.label}`;
     if (this.phase === "pad" && this.padRig) {
       if (this.walkerDist(this.hatchWorld(this.padRig, this.v1)) < 2.6) return "E  Board spacecraft";
       if (this.walkerDistXYZ(7.5, -5) < 2.8) return "E  Refuel";

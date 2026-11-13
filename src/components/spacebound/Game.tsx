@@ -41,6 +41,7 @@ import { Spacebound, type Snap } from "@/game/engine";
 import { haptic } from "@/game/haptics";
 import { pickHint } from "@/game/hints";
 import { placeWaypoint } from "@/game/waypoint";
+import { ContractBoard, ContractHud, ContractResultView } from "./Contracts";
 // phone-fix-map-v1
 import { App as CapApp } from "@capacitor/app";
 // phone-fix-menu-v1
@@ -185,7 +186,8 @@ export function Game() {
         {snap && (snap.screen === "play" || snap.screen === "pause") && snap.screen === "play" && (
           <Hud snap={snap} act={act} />
         )}
-        {snap && snap.screen === "play" && !snap.modal && <Tips snap={snap} act={act} touch={touchUi} />}
+        {snap && snap.screen === "play" && !snap.modal && !snap.contracts.result && <Tips snap={snap} act={act} touch={touchUi} />}
+        {snap && snap.screen === "play" && <ContractResultView snap={snap} act={act} />}
         {snap?.toast && (
           <p className="absolute left-1/2 top-[4.5rem] max-w-md -translate-x-1/2 border border-line bg-bg/90 px-4 py-2 text-center text-sm text-fg sb-toast">
             {snap.toast}
@@ -464,6 +466,7 @@ function Stat({ label, value, icon }: { label: string; value: string; icon?: Rea
 }
 
 function Missions({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => void }) {
+  const [tab, setTab] = useState<"contracts" | "campaign">("contracts");
   return (
     <div className="flex h-full">
       <Panel cls="sb-panel-wide">
@@ -473,8 +476,23 @@ function Missions({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void
             <X className="size-5" />
           </button>
         </div>
-        <p className="text-sm text-muted">Active route: {activeMission(snap.done)?.name ?? "Catalog complete"}.</p>
-        <div className="sb-grid-2 grid gap-3">
+        <div className="grid grid-cols-2 gap-2" role="tablist">
+          {(["contracts", "campaign"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={tab === t}
+              className={"min-h-11 border px-3 font-display text-lg uppercase tracking-wide " + (tab === t ? "border-accent bg-accent text-bg" : "border-line text-fg hover:border-primary")}
+              onClick={() => setTab(t)}
+            >
+              {t === "contracts" ? "Contracts" : "Campaign"}
+            </button>
+          ))}
+        </div>
+        {tab === "contracts" && <ContractBoard snap={snap} act={act} />}
+        {tab === "campaign" && <p className="text-sm text-muted">Active route: {activeMission(snap.done)?.name ?? "Catalog complete"}.</p>}
+        {tab === "campaign" && <div className="sb-grid-2 grid gap-3">
           {MISSIONS.map((m) => {
             const state = missionState(snap.done, m.id);
             return (
@@ -499,7 +517,7 @@ function Missions({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void
               </article>
             );
           })}
-        </div>
+        </div>}
       </Panel>
     </div>
   );
@@ -761,6 +779,11 @@ function Pause({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
           {(snap.phase === "flight" || snap.phase.startsWith("surface")) && (
             <Cmd onClick={() => act((e) => e.abortToOrbit())}>Abort to Earth orbit</Cmd>
           )}
+          {snap.contracts.active && (
+            <Cmd onClick={() => act((e) => e.open("missions"))}>
+              Contract: {snap.contracts.active.title}
+            </Cmd>
+          )}
           <Cmd onClick={() => act((e) => e.open("settings"))}>
             Settings <Settings className="size-5" />
           </Cmd>
@@ -787,10 +810,13 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
           }}
         />
       )}
-      <div className="absolute left-4 top-4 max-w-xs border border-line bg-bg/80 p-3 backdrop-blur-md sm:left-6 sm:top-6 sb-obj">
-        <p className="font-display text-xs tracking-widest text-accent">OBJECTIVE</p>
-        <p className="font-display text-2xl uppercase leading-none">{snap.objective}</p>
-        <p className="sb-obj-detail mt-2 text-xs leading-relaxed text-muted">{snap.detail}</p>
+      <div className="absolute left-4 top-4 flex max-w-xs flex-col gap-2 sm:left-6 sm:top-6 sb-hudcol">
+        <div className="border border-line bg-bg/80 p-3 backdrop-blur-md sb-obj">
+          <p className="font-display text-xs tracking-widest text-accent">OBJECTIVE</p>
+          <p className="font-display text-2xl uppercase leading-none">{snap.objective}</p>
+          <p className="sb-obj-detail mt-2 text-xs leading-relaxed text-muted">{snap.detail}</p>
+        </div>
+        <ContractHud snap={snap} />
       </div>
       <div className="absolute right-4 top-4 border border-line bg-bg/80 p-3 text-right backdrop-blur-md sm:right-6 sm:top-6 sb-dest">
         <p className="font-display text-xs tracking-widest text-primary">{DESTS[snap.destination].name}</p>
@@ -899,7 +925,7 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
         </div>
       )}
       {surface && snap.phase === "surface" && (
-        <div className="absolute bottom-6 left-4 border border-line bg-bg/80 p-3 backdrop-blur-md sb-ox">
+        <div className={"absolute bottom-6 left-4 border border-line bg-bg/80 p-3 backdrop-blur-md sb-ox" + (snap.contracts.active ? " sb-ox-c" : "")}>
           <p className="text-xs text-muted">OXYGEN</p>
           <p className="font-display text-3xl">{Math.round(snap.ox)}%</p>
           <p className="text-xs text-muted">Suit {snap.ox > 35 ? "nominal" : snap.ox > 15 ? "caution" : "critical"}</p>

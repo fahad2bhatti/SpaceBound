@@ -7,6 +7,8 @@ import {
   type Upgrade,
 } from "./catalog";
 import { HINT_IDS } from "./hints";
+import { defaultContractsSave, sanitizeContracts } from "./contracts/state";
+import type { ContractsSave } from "./contracts/types";
 
 export type Quality = "low" | "medium" | "high";
 
@@ -45,8 +47,14 @@ export type Resume = {
   zi?: number;
 };
 
+/**
+ * Save format version. 2 added `contracts` (contracts-v1). The storage key stays the same and sanitize() fills
+ * anything missing, so v1 saves load unchanged: no migration step is needed, just defaults for new fields.
+ */
+export const SAVE_VERSION = 2;
+
 export type SaveData = {
-  version: 1;
+  version: typeof SAVE_VERSION;
   started: boolean;
   credits: number;
   owned: ShipId[];
@@ -64,6 +72,8 @@ export type SaveData = {
   /** planet-zones-v1: scanned landing zone ids, and zone rewards already paid. */
   zonesFound: string[];
   zonesClaimed: string[];
+  /** contracts-v1: contract board, active contract progress, completed list. */
+  contracts: ContractsSave;
   resume: Resume | null;
 };
 
@@ -75,7 +85,7 @@ export function defaultSave(): SaveData {
     fuel[id] = SHIPS[id].fuel;
   });
   return {
-    version: 1,
+    version: SAVE_VERSION,
     started: false,
     credits: 2000,
     owned: ["starter"],
@@ -103,6 +113,7 @@ export function defaultSave(): SaveData {
     hints: [],
     zonesFound: [],
     zonesClaimed: [],
+    contracts: defaultContractsSave(),
     resume: null,
   };
 }
@@ -173,7 +184,7 @@ function sanitize(raw: Partial<SaveData>): SaveData {
       ? [...HINT_IDS]
       : [];
   return {
-    version: 1,
+    version: SAVE_VERSION,
     started: Boolean(raw.started),
     credits: Math.max(0, Math.round(raw.credits ?? base.credits)),
     owned,
@@ -195,6 +206,7 @@ function sanitize(raw: Partial<SaveData>): SaveData {
     hints,
     zonesFound: Array.isArray(raw.zonesFound) ? raw.zonesFound.filter((x): x is string => typeof x === "string") : [],
     zonesClaimed: Array.isArray(raw.zonesClaimed) ? raw.zonesClaimed.filter((x): x is string => typeof x === "string") : [],
+    contracts: sanitizeContracts(raw.contracts),
     resume: raw.resume ?? null,
   };
 }

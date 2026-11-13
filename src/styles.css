@@ -13,6 +13,8 @@
   --color-line: #2c3a4a;
   --color-primary: #8ecfff;
   --color-accent: #e8893a;
+  --color-warn: #f5c542;
+  --color-danger: #ef4444;
   --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
 }
@@ -206,4 +208,20 @@
 
   .sb-toast { top: 3.9rem; max-width: 22rem; padding: 0.25rem 0.6rem; font-size: 0.8rem; }
   .sb-tip { top: 6rem; max-width: 15rem; padding: 0.3rem 0.6rem; font-size: 0.75rem; }
+}
+
+/* contracts-v1 */
+@keyframes sb-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.sb-pulse { animation: sb-pulse 0.9s ease-in-out infinite; }
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .sb-hudcol { left: 0.75rem; top: 0.75rem; max-width: 15rem; gap: 0.3rem; }
+  .sb-contract { max-height: 9.5rem; overflow-y: auto; }
+  .sb-contract button { min-height: 2rem; padding-top: 0.15rem; padding-bottom: 0.15rem; }
+  .sb-contract li { font-size: 0.68rem; line-height: 1.2; }
+  /* with a contract panel in the left column, the suit oxygen box moves to the right edge under the destination box */
+  .sb-ox-c { left: auto; right: 0.75rem; top: 4.5rem; }
 }

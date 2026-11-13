@@ -2958,6 +2958,17 @@ export class Spacebound {
     this.persist(true);
   }
 
+  /** Board button: draw a fresh set of contracts (not while one is active). */
+  refreshContracts(): void {
+    if (this.contracts.activeId) {
+      this.toast("Finish or abandon your contract first.");
+      return;
+    }
+    this.contracts.refreshBoard();
+    this.audio.ui();
+    this.persist(true);
+  }
+
   abandonContract(): void {
     const title = this.contracts.abandon();
     if (!title) return;

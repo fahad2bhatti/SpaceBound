@@ -1357,6 +1357,7 @@ export class Spacebound {
     this.evaLock = 0.8;
     this.evaHitCd = 0;
     this.evaDrain = 1;
+    if (!this.contractOxygen()) this.ox = 100; // free-roam: fresh suit
     this.astro.group.scale.setScalar(EVA_SCALE);
     this.astro.group.visible = true;
     this.lamp.intensity = 0;
@@ -1422,6 +1423,12 @@ export class Spacebound {
   }
 
   /** The repair marker the astronaut is hovering at, if any. */
+  /** True when the active contract carries its own EVA oxygen tank (otherwise the free-roam suit oxygen `ox` is used). */
+  private contractOxygen(): boolean {
+    const a = this.contracts.data.active;
+    return !!a && a.oxygenLeft !== null && a.oxygenLeft !== undefined;
+  }
+
   private evaSpotNear(): SpotView | null {
     if (this.phase !== "eva" || !this.contracts.activeId) return null;
     for (const sp of this.contracts.spots("eva", null)) {
@@ -1497,6 +1504,21 @@ export class Spacebound {
         haptic.tap();
       }
     } else this.evaHoldT = 0;
+
+    // free-roam (no contract oxygen): same suit oxygen as the surface walker, drained faster the further you drift.
+    // Empty tank is not a fail: you are pulled back to the airlock, like the hatch reset on a surface walk.
+    if (!this.contractOxygen()) {
+      this.ox -= 1.2 * this.evaDrain * dt;
+      if (this.ox <= 0) {
+        this.ox = 40;
+        const up = this.v2.set(0, 1, 0).applyQuaternion(this.ensureFlightRig().group.quaternion);
+        this.evaPos.copy(this.flightPos).addScaledVector(up, 1.6);
+        this.evaVel.set(0, 0, 0);
+        this.evaLock = 0.8;
+        this.audio.alarm();
+        this.toast("Suit oxygen critical. Pulled back to the shuttle.");
+      }
+    }
 
     this.updateDebris(dt);
 

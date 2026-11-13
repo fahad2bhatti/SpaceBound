@@ -10,7 +10,7 @@ export type HandlerCtx<K extends ObjectiveType = ObjectiveType> = {
   inventory: Record<string, number>;
 };
 
-export type SpotInfo = { spot: Spot; kind: "pickup" | "drop" };
+export type SpotInfo = { spot: Spot; kind: "pickup" | "drop"; /** Marker look. Omit for the default crate / beacon. */ icon?: "crew" };
 
 // Method syntax on purpose: it keeps handlers for one type assignable to the registry's wide type.
 export interface ObjectiveHandler<K extends ObjectiveType = ObjectiveType> {
@@ -111,6 +111,34 @@ registerObjective("surviveTime", {
   },
   progress(c) {
     return `${Math.floor(c.state.value)} / ${Math.round(c.state.target)} s`;
+  },
+});
+
+// Crew stand in a short row around `at` (spacing CREW_GAP m, along z). Only the next one is marked, so one E = one rescue.
+const CREW_GAP = 3.5;
+const crewCount = (p: ObjectiveParamsMap["rescueCrew"]): number => Math.min(3, Math.max(1, Math.round(p.count)));
+
+registerObjective("rescueCrew", {
+  target(p) {
+    return crewCount(p as ObjectiveParamsMap["rescueCrew"]);
+  },
+  spot(c) {
+    if (c.state.done) return null;
+    const p = c.params as ObjectiveParamsMap["rescueCrew"];
+    const n = crewCount(p);
+    const i = Math.min(n - 1, Math.floor(c.state.value));
+    const z = p.at.z + (i - (n - 1) / 2) * CREW_GAP;
+    return { spot: { ...p.at, z, label: p.label ?? p.at.label }, kind: "pickup", icon: "crew" };
+  },
+  interact(c) {
+    if (c.state.done) return false;
+    c.inventory.crew = (c.inventory.crew ?? 0) + 1;
+    c.state.value = Math.min(c.state.target, c.state.value + 1);
+    if (c.state.value >= c.state.target) complete(c);
+    return true;
+  },
+  progress(c) {
+    return `${Math.floor(c.state.value)} / ${Math.round(c.state.target)}`;
   },
 });
 

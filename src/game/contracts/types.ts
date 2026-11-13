@@ -30,6 +30,8 @@ export interface ObjectiveParamsMap {
   deliverTo: { item: string; at: Spot };
   /** Accumulate `seconds` while `where` holds (any / in flight / on foot on a surface). */
   surviveTime: { seconds: number; where?: "any" | "flight" | "surface" };
+  /** Pick up stranded crew (1-3) one by one by pressing E on their marker. Each rescue adds 1 to inventory.crew. */
+  rescueCrew: { at: Spot; count: number; label?: string };
   /** Touch down on Earth. */
   returnToEarth: Record<string, never>;
 }
@@ -55,6 +57,8 @@ export type ContractReward = {
   xp?: number;
   /** Contract ids that become eligible for the board (see ContractDef.hidden). */
   unlocks?: string[];
+  /** Extra pay for every crew member rescued (inventory.crew when the contract ends). */
+  crewBonus?: { credits: number; xp?: number };
 };
 
 export type ContractDef = {
@@ -134,6 +138,10 @@ export type ContractResult = {
   title: string;
   reason?: FailReason;
   reward?: { credits: number; xp: number };
+  /** Contract tag (ContractDef.type), so the UI can word the fail reason, e.g. \"rescue\". */
+  type: string;
+  /** Crew members rescued (rescue contracts only). */
+  crewSaved: number;
   elapsed: number;
   /** Titles of contracts this one unlocked. */
   unlocked: string[];
@@ -150,6 +158,8 @@ export type ObjectiveView = { id: string; label: string; done: boolean; current:
 export type ActiveView = {
   id: string;
   title: string;
+  /** ContractDef.type, e.g. "rescue" (HUD relabels the timer as CREW OXYGEN). */
+  type: string;
   difficulty: Difficulty;
   objectives: ObjectiveView[];
   time: MeterView | null;
@@ -174,7 +184,7 @@ export type BoardCard = {
   completed: boolean;
 };
 
-export type SpotView = { key: string; x: number; z: number; label: string; kind: "pickup" | "drop" };
+export type SpotView = { key: string; x: number; z: number; label: string; kind: "pickup" | "drop"; icon?: "crew" };
 
 /** What the manager needs from the game to judge eligibility. */
 export type ContractCtx = { range: number; ship: ShipId; campaignDone: readonly string[] };

@@ -288,7 +288,7 @@ export class ContractManager {
     if (!def || !a) return;
     this.slice.active = null;
     this.slice.stats.failed += 1;
-    this.result = { kind: "failed", id: def.id, title: def.title, reason, elapsed: a.elapsed, unlocked: [] };
+    this.result = { kind: "failed", id: def.id, title: def.title, reason, type: def.type, crewSaved: a.inventory.crew ?? 0, elapsed: a.elapsed, unlocked: [] };
     this.touch();
     this.hooks.onFinish?.(this.result);
   }
@@ -307,14 +307,18 @@ export class ContractManager {
         unlockedTitles.push(target.title);
       }
     }
-    const xp = def.reward.xp ?? 0;
+    const crewSaved = a.inventory.crew ?? 0;
+    const credits = def.reward.credits + crewSaved * (def.reward.crewBonus?.credits ?? 0);
+    const xp = (def.reward.xp ?? 0) + crewSaved * (def.reward.crewBonus?.xp ?? 0);
     this.slice.xp += xp;
     this.slice.stats.done += 1;
     this.result = {
       kind: "success",
       id: def.id,
       title: def.title,
-      reward: { credits: def.reward.credits, xp },
+      reward: { credits, xp },
+      type: def.type,
+      crewSaved,
       elapsed: a.elapsed,
       unlocked: unlockedTitles,
     };
@@ -404,7 +408,7 @@ export class ContractManager {
       const info = getHandler(def.objectives[i]!.type)?.spot?.(this.hctx(def, a, i));
       if (!info || info.spot.scene !== scene) continue;
       if (scene === "surface" && info.spot.body && info.spot.body !== body) continue;
-      out.push({ key: def.objectives[i]!.id, x: info.spot.x, z: info.spot.z, label: info.spot.label, kind: info.kind });
+      out.push({ key: def.objectives[i]!.id, x: info.spot.x, z: info.spot.z, label: info.spot.label, kind: info.kind, icon: info.icon });
     }
     return out;
   }
@@ -456,6 +460,7 @@ export class ContractManager {
     return {
       id: def.id,
       title: def.title,
+      type: def.type,
       difficulty: def.difficulty,
       objectives: def.objectives.map((o, i) => {
         const h = getHandler(o.type);

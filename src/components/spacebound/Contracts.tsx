@@ -85,7 +85,7 @@ export function ContractHud({ snap }: { snap: Snap }) {
       </button>
       {!collapsed && (
         <div className="space-y-2 px-3 pb-2">
-          {a.time && <Meter label="TIME" m={a.time} />}
+          {a.time && <Meter label={a.type === "rescue" ? "CREW OXYGEN" : "TIME"} m={a.time} />}
           {a.oxygen && <Meter label="EVA OXYGEN" m={a.oxygen} />}
           <ul className="space-y-1">
             {a.objectives.map((o) => (
@@ -204,11 +204,12 @@ export function ContractResultView({ snap, act }: { snap: Snap; act: Act }) {
           <>
             <p className="mt-3 font-display text-2xl text-primary">+{formatInt(r.reward.credits)} CR</p>
             {r.reward.xp > 0 && <p className="text-sm text-muted">+{r.reward.xp} XP</p>}
+            {r.crewSaved > 0 && <p className="text-sm text-muted">Crew rescued: {r.crewSaved}</p>}
             <p className="mt-2 text-sm text-muted">Time on contract {formatClock(r.elapsed)}.</p>
             {r.unlocked.length > 0 && <p className="mt-2 text-sm text-accent">New contract unlocked: {r.unlocked.join(", ")}.</p>}
           </>
         ) : (
-          <p className="mt-3 text-sm leading-relaxed text-muted">{r.reason ? FAIL_TEXT[r.reason] : "The contract ended."}</p>
+          <p className="mt-3 text-sm leading-relaxed text-muted">{r.reason === "time" && r.type === "rescue" ? "The crew ran out of air." : r.reason ? FAIL_TEXT[r.reason] : "The contract ended."}</p>
         )}
         <div className="mt-5 grid grid-cols-2 gap-2">
           {ok ? (

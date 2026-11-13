@@ -2897,7 +2897,8 @@ export class Spacebound {
     g.name = "contractMarkers";
     for (const sp of spots) {
       const pickup = sp.kind === "pickup";
-      const color = pickup ? 0xffb347 : 0x5eead4;
+      const crew = sp.icon === "crew";
+      const color = crew ? 0x7dd3fc : pickup ? 0xffb347 : 0x5eead4;
       const y = this.phase === "surface" && this.terrain ? this.terrain.heightAt(sp.x, sp.z) : this.phase === "pad" ? 0.02 : 0;
       const m = new THREE.Group();
       m.position.set(sp.x, y, sp.z);
@@ -2914,7 +2915,16 @@ export class Spacebound {
       ring.rotation.x = Math.PI / 2;
       ring.position.y = 0.06;
       m.add(ring);
-      if (pickup) {
+      if (crew) {
+        const suit = new THREE.MeshStandardMaterial({ color: 0xe8eef5, emissive: 0x7dd3fc, emissiveIntensity: 0.35, roughness: 0.6 });
+        const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.9, 8), suit);
+        torso.position.y = 0.75;
+        const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), suit);
+        helmet.position.y = 1.45;
+        const visor = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffb347 }));
+        visor.position.set(0, 1.47, 0.12);
+        m.add(torso, helmet, visor);
+      } else if (pickup) {
         const crate = new THREE.Mesh(
           new THREE.BoxGeometry(0.7, 0.7, 0.7),
           new THREE.MeshStandardMaterial({ color: 0xd9822b, emissive: 0xffb347, emissiveIntensity: 0.55, roughness: 0.5 }),

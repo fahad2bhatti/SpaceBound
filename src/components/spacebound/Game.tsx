@@ -941,6 +941,7 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
           <div className="absolute bottom-6 left-4 border border-line bg-bg/80 p-3 backdrop-blur-md sb-ox">
             <p className="text-xs text-muted">SHUTTLE RANGE</p>
             <p className="font-display text-3xl">{Math.round(snap.eva.range)} su</p>
+            {!snap.contracts.active?.oxygen && <p className="text-xs text-muted">OXYGEN {Math.round(snap.ox)}%</p>}
             <div className="mt-1 h-1.5 w-32 bg-line">
               <div
                 className={"h-full " + (snap.eva.drain > 1.05 ? "bg-danger" : "bg-primary")}

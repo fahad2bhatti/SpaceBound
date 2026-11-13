@@ -27,7 +27,7 @@ export const DIFFICULTY_ORDER: Difficulty[] = ["easy", "normal", "hard"];
 // Cargo crate on the Northline pad, between the walk-in point and the ship.
 const PAD_CRATE: Spot = { scene: "pad", x: 6.2, z: 3.2, label: "Load cargo" };
 // Drop marker on the Moon/Mars surface, 9 m from the landed ship on open ground (clear of rocks and craters).
-const DROP_POINT: Spot = { scene: "surface", x: -9, z: 0, label: "Deliver cargo" };
+const dropPoint = (body: "moon" | "mars", label: string): Spot => ({ scene: "surface", body, x: -9, z: 0, label });
 
 // Moon route rating is 210, Mars 470 (catalog BODIES). Starter ship range is only 90, so the farther
 // contracts need a bigger ship: that is what "requirements.minRange" is for.
@@ -79,7 +79,7 @@ export const CONTRACTS: ContractDef[] = [
     objectives: [
       { id: "load", type: "collectItem", label: "Load the cargo crate on the pad", params: { item: "cargo", at: PAD_CRATE } },
       { id: "land", type: "landAtZone", label: "Land at Tranquil Flats", params: { body: "moon", zone: "moon-flats" } },
-      { id: "deliver", type: "deliverTo", label: "Deliver the cargo at the marker", params: { item: "cargo", at: DROP_POINT } },
+      { id: "deliver", type: "deliverTo", label: "Deliver the cargo at the marker", params: { item: "cargo", at: dropPoint("moon", "Deliver cargo") } },
       { id: "home", type: "returnToEarth", label: "Return to Earth", params: {} },
     ],
     reward: { credits: 1800, xp: 150 },
@@ -117,7 +117,7 @@ export const CONTRACTS: ContractDef[] = [
     objectives: [
       { id: "load", type: "collectItem", label: "Load the supply crate on the pad", params: { item: "supplies", at: PAD_CRATE } },
       { id: "land", type: "landAtZone", label: "Land at Dune Basin", params: { body: "mars", zone: "mars-dunes" } },
-      { id: "deliver", type: "deliverTo", label: "Deliver the supplies at the marker", params: { item: "supplies", at: DROP_POINT } },
+      { id: "deliver", type: "deliverTo", label: "Deliver the supplies at the marker", params: { item: "supplies", at: dropPoint("mars", "Deliver supplies") } },
       { id: "home", type: "returnToEarth", label: "Return to Earth", params: {} },
     ],
     reward: { credits: 4200, xp: 320 },

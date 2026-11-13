@@ -80,6 +80,13 @@ Branch feature/eva (built on feature/rescue-eva). Contract content lives in `src
 - Save: no schema change. EVA state is not saved; a reload during EVA resumes in flight at the shuttle, the contract (progress, oxygen) is kept.
 - Not verified on a device yet: EVA feel and speeds (EVA_ACCEL / EVA_MAX), marker reach (EVA_REACH), crew marker placement on rocks, FPS on phone.
 
+## Landing stars (branch feature/landing-stars)
+- `src/game/landing.ts`: `LANDING_CFG` holds every threshold (stars: descent / drift / tilt / center-of-zone, Perfect Landing limits + bonus 150 cr, contract multiplier 1 / 1.15 / 1.3, score weights). `rateLanding()` gives 1-3 stars (assist caps at 2), `gradeLanding()` is unchanged.
+- Engine: `resolveGround` measures tilt and zone-center distance, `recordLanding` returns a `LandingResult` shown by `components/spacebound/Landing.tsx` (non-blocking, tap skips, low quality / reduced motion = no animation). The `landed` contract event carries `stars`; `manager.succeed()` multiplies the credits of a contract finished by that landing. Free-roam credits are unchanged (grade bonus + the Perfect bonus).
+- Save v3: `best` (stars + score per planet id and zone id) and `badges`; `sanitize()` is the migration (v1/v2 load with empty best). Mission board cards show best stars of their planet.
+- Share: `src/game/share.ts` (config: game name + placeholder link). Capacitor Share on the phone (needs `npm i` + `npx cap sync android` once), Web Share in browsers, clipboard fallback. Text only, no share-card image.
+- Tests: `npx tsx scripts/landing.test.mts` (stars, score, multiplier, best, migration, share text) and `npx tsx scripts/contracts.test.mts`.
+
 ## Known issues / untested
 - `npx tsc --noEmit` shows old type errors (e.g. Input.override is private but used by the engine). Vite build ignores them.
 - Changing the destination mid-flight (MAP button) was not tested against mission/landing rules.

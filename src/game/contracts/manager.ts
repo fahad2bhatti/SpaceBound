@@ -11,6 +11,7 @@ import type { BodyId } from "../catalog";
 import { CONTRACTS, DIFFICULTY_ORDER, scaledLimit } from "./data";
 import { getHandler, type HandlerCtx } from "./objectives";
 import { defaultContractsSave } from "./state";
+import { starMultiplier } from "../landing";
 import type {
   ActiveContract,
   ActiveView,
@@ -151,6 +152,9 @@ export class ContractManager {
   }
 
   /** Indices of objectives that currently accept events: first unfinished one (sequence) or all unfinished (parallel). */
+  /** Stars of the landing event being handled right now (0 outside a landing). Read by succeed() for the reward multiplier. */
+  private landStars = 0;
+
   private liveIdx(def: ContractDef, a: ActiveContract): number[] {
     const open: number[] = [];
     def.objectives.forEach((o, i) => {
@@ -288,7 +292,7 @@ export class ContractManager {
     if (!def || !a) return;
     this.slice.active = null;
     this.slice.stats.failed += 1;
-    this.result = { kind: "failed", id: def.id, title: def.title, reason, type: def.type, crewSaved: a.inventory.crew ?? 0, elapsed: a.elapsed, unlocked: [] };
+    this.result = { kind: "failed", id: def.id, title: def.title, reason, type: def.type, crewSaved: a.inventory.crew ?? 0, stars: 0, starMult: 1, elapsed: a.elapsed, unlocked: [] };
     this.touch();
     this.hooks.onFinish?.(this.result);
   }
@@ -308,7 +312,10 @@ export class ContractManager {
       }
     }
     const crewSaved = a.inventory.crew ?? 0;
-    const credits = def.reward.credits + crewSaved * (def.reward.crewBonus?.credits ?? 0);
+    // landing-stars-v1: a landing that finishes the contract scales the credits (1 star x1.0, 2 x1.15, 3 x1.3)
+    const stars = this.landStars;
+    const starMult = stars > 0 ? starMultiplier(stars) : 1;
+    const credits = Math.round((def.reward.credits + crewSaved * (def.reward.crewBonus?.credits ?? 0)) * starMult);
     const xp = (def.reward.xp ?? 0) + crewSaved * (def.reward.crewBonus?.xp ?? 0);
     this.slice.xp += xp;
     this.slice.stats.done += 1;
@@ -319,6 +326,8 @@ export class ContractManager {
       reward: { credits, xp },
       type: def.type,
       crewSaved,
+      stars,
+      starMult,
       elapsed: a.elapsed,
       unlocked: unlockedTitles,
     };
@@ -388,13 +397,18 @@ export class ContractManager {
       this.fail("crash");
       return;
     }
-    for (const i of this.liveIdx(def, a)) {
-      const h = getHandler(def.objectives[i]!.type);
-      if (!h?.onEvent) continue;
-      const c = this.hctx(def, a, i);
-      const was = c.state.done;
-      h.onEvent(ev, c);
-      if (this.settle(def, a, i, was)) return;
+    this.landStars = ev.type === "landed" ? (ev.stars ?? 0) : 0;
+    try {
+      for (const i of this.liveIdx(def, a)) {
+        const h = getHandler(def.objectives[i]!.type);
+        if (!h?.onEvent) continue;
+        const c = this.hctx(def, a, i);
+        const was = c.state.done;
+        h.onEvent(ev, c);
+        if (this.settle(def, a, i, was)) return;
+      }
+    } finally {
+      this.landStars = 0;
     }
   }
 

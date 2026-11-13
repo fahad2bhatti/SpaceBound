@@ -97,7 +97,8 @@ export type ContractDef = {
 
 /** Add an event: add it here and emit it from the engine with Spacebound.contractEvent(). */
 export interface ContractEventMap {
-  landed: { body: BodyId; zone: string | null };
+  /** `stars` (1-3) is the landing rating; the contract reward multiplier uses it when this landing finishes the contract. */
+  landed: { body: BodyId; zone: string | null; stars?: number };
   crash: { body: BodyId };
   /** The player stepped back into the shuttle airlock. */
   evaEnded: Record<never, never>;
@@ -156,6 +157,9 @@ export type ContractResult = {
   type: string;
   /** Crew members rescued (rescue contracts only). */
   crewSaved: number;
+  /** Landing stars that finished the contract (0 = not finished by a landing) and the credit multiplier they gave. */
+  stars: number;
+  starMult: number;
   elapsed: number;
   /** Titles of contracts this one unlocked. */
   unlocked: string[];
@@ -196,6 +200,8 @@ export type BoardCard = {
   /** Why it is locked, e.g. "Needs 210 su range". */
   lockedReason: string | null;
   completed: boolean;
+  /** landing-stars-v1: best stars on this contract's planet (filled in by the engine from the save). */
+  bestStars?: number;
 };
 
 export type SpotView = { key: string; x: number; z: number; label: string; kind: "pickup" | "drop"; icon?: "crew" | "repair"; y?: number };

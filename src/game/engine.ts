@@ -36,7 +36,8 @@ import {
   type Terrain,
 } from "./models";
 import { haptic, setHapticsEnabled } from "./haptics";
-import { gradeLanding } from "./landing";
+import { LANDING_CFG, gradeLanding, rateLanding, updateBest, type LandingResult } from "./landing";
+import { shareResult, shareText } from "./share";
 import { ContractManager } from "./contracts/manager";
 import type { ContractResult, ContractsSnap, SpotView, WorldProbe } from "./contracts/types";
 import { KIND_LABEL, PLANETS, ZONE_COLORS, type ZoneDef, type ZoneKind } from "./planets";
@@ -106,6 +107,8 @@ export type Snap = {
   atmo: { name: string; label: string; depth: number; tint: string } | null;
   /** contracts-v1 */
   contracts: ContractsSnap;
+  /** landing-stars-v1: result of the last touchdown (stars, numbers, bonus, best), null once dismissed. */
+  landing: LandingResult | null;
   /** eva-v1: spacewalk readouts, null outside EVA. */
   eva: {
     range: number;
@@ -190,6 +193,10 @@ export class Spacebound {
   // back-fix-v1: panel kahan se khola gaya (back ke liye)
   private backTo: Screen | null = null;
   private modalQ: Modal[] = [];
+  // landing-stars-v1
+  private landing: LandingResult | null = null;
+  private landingT = 0;
+  private landingId = 0;
   private toastText: string | null = null;
   private toastT = 0;
   private flash = 0;
@@ -495,6 +502,7 @@ export class Spacebound {
           : null,
       zones: this.zoneSnap(),
       contracts: this.contractsSnap(),
+      landing: this.landing,
       eva: this.evaSnap(),
     };
   }
@@ -1017,6 +1025,10 @@ export class Spacebound {
     else if (simulate) {
       this.animPlay(dt);
       this.tickContracts(dt);
+      if (this.landing) {
+        this.landingT -= dt;
+        if (this.landingT <= 0) this.dismissLanding();
+      }
     }
     this.syncContractMarkers(dt);
     this.tickSpin(dt);
@@ -1888,19 +1900,74 @@ export class Spacebound {
     if (braked) this.fuel = Math.max(0, this.fuel - this.stats().burn * 0.25 * dt);
   }
 
-  private recordLanding(body: BodyId, descent: number, drift: number, fuelFrac: number): void {
+  /** Grade + stars + best score for a successful touchdown. Credits: grade bonus (as before) plus the Perfect Landing bonus. */
+  private recordLanding(
+    body: BodyId,
+    descent: number,
+    drift: number,
+    fuelFrac: number,
+    tiltDeg: number,
+    centerFrac: number | null,
+    zone: LandingZone | null,
+  ): LandingResult {
     const assisted = this.save.settings.assist;
     const { grade, bonus } = gradeLanding(descent, drift, fuelFrac, assisted, body);
-    this.save.credits += bonus;
-    if (grade === "B") haptic.warn();
+    const rated = rateLanding({ descent, drift, tiltDeg, centerFrac, fuelFrac, assisted });
+    const perfectBonus = rated.perfect ? LANDING_CFG.perfect.bonus : 0;
+    this.save.credits += bonus + perfectBonus;
+    const zoneId = zone ? zone.z.id : null;
+    const keys = zoneId ? [body, zoneId] : [body];
+    const newBest = updateBest(this.save.best, keys, rated.stars, rated.score);
+    const rec = this.save.best[keys[keys.length - 1]!]!;
+    let badgeNew = false;
+    if (rated.perfect && !this.save.badges.includes(LANDING_CFG.perfect.badge)) {
+      this.save.badges.push(LANDING_CFG.perfect.badge);
+      badgeNew = true;
+    }
+    if (rated.stars === 1) haptic.warn();
     else haptic.success();
-    this.modalQ.push({
-      kicker: "LANDING REPORT",
-      title: `Grade ${grade}`,
-      text: `Descent ${Math.max(0, descent).toFixed(1)} · Drift ${Math.abs(drift).toFixed(1)} · Fuel ${Math.round(fuelFrac * 100)}%.${assisted ? " Landing assist caps the grade at A." : ""}`,
-      reward: bonus,
-    });
+    const res: LandingResult = {
+      id: ++this.landingId,
+      body,
+      bodyName: BODIES[body].name,
+      zoneName: zone ? zone.z.name : null,
+      grade,
+      stars: rated.stars,
+      perfect: rated.perfect,
+      score: rated.score,
+      descent: Math.max(0, descent),
+      drift: Math.abs(drift),
+      tiltDeg,
+      centerPct: centerFrac === null ? null : Math.round(centerFrac * 100),
+      fuelPct: Math.round(fuelFrac * 100),
+      assisted,
+      bonus,
+      perfectBonus,
+      badgeNew,
+      newBest,
+      bestStars: rec.stars,
+      bestScore: rec.score,
+    };
+    this.landing = res;
+    this.landingT = 9;
     this.persist(true);
+    return res;
+  }
+
+  dismissLanding(): void {
+    if (!this.landing) return;
+    this.landing = null;
+    this.notifyNow = true;
+  }
+
+  /** Share the last landing: Capacitor Share on the phone, Web Share in browsers, clipboard as the last resort. */
+  shareLanding(): void {
+    const r = this.landing;
+    if (!r) return;
+    void shareResult(shareText(r)).then((o) => {
+      if (o === "copied") this.toast("Result copied to clipboard.");
+      else if (o === "failed") this.toast("Could not share the result.");
+    });
   }
 
   private resolveGround(body: BodyId): void {
@@ -1940,6 +2007,10 @@ export class Spacebound {
     if (descent < maxD && horiz < maxH) {
       const spot = up.clone();
       const fuelFrac = this.fuel / Math.max(1, this.stats().fuel);
+      // landing-stars-v1: measure tilt and distance from the zone centre now, before enterPad/enterSurface move things around
+      const shipUp = this.v1.set(0, 1, 0).applyQuaternion(this.ensureFlightRig().group.quaternion);
+      const tiltDeg = THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(shipUp.dot(up), -1, 1)));
+      const centerFrac = zone ? zone.arc / (zone.z.radius * (this.save.settings.assist ? 1.5 : 1)) : null;
       this.audio.thud();
       this.audio.setThrottle(0);
       this.throttle = 0;
@@ -1960,11 +2031,11 @@ export class Spacebound {
         this.enterSurface(body, true);
         this.toast(`${def.name} touchdown. Egress when you're ready.`);
       }
-      this.recordLanding(body, descent, horiz, fuelFrac);
+      const lres = this.recordLanding(body, descent, horiz, fuelFrac, tiltDeg, centerFrac, zone);
       this.landed = { body, n: spot };
       this.landedZone = lz ? lz.i : 0;
       this.onZoneLanded(zone);
-      this.contracts.handle({ type: "landed", body, zone: zone ? zone.z.id : null });
+      this.contracts.handle({ type: "landed", body, zone: zone ? zone.z.id : null, stars: lres.stars });
       this.notifyNow = true;
       return;
     }
@@ -3187,7 +3258,7 @@ export class Spacebound {
     return {
       active: this.contracts.activeView(),
       result: this.contracts.result,
-      board: this.screen === "missions" ? this.contracts.boardView() : [],
+      board: this.screen === "missions" ? this.contracts.boardView().map((c) => ({ ...c, bestStars: this.save.best[c.planet]?.stars ?? 0 })) : [],
       acceptBlock: null,
       xp: this.contracts.data.xp,
     };

@@ -283,7 +283,7 @@ t("save: v1 save without contracts loads with defaults; damaged data is repaired
   assert.equal(s.board.length, 3);
   assert.equal(s.xp, 0);
   assert.equal(s.active, null);
-  assert.equal(defaultSave().version, 2);
+  assert.equal(defaultSave().version, 3);
   assert.deepEqual(defaultSave().contracts, defaultContractsSave());
 });
 
@@ -474,6 +474,25 @@ t("eva contracts: hazards, oxygen scale with difficulty, three missions exist", 
   assert.equal(m.data.active!.oxygenLeft, scaledLimit(hard, hard.oxygenLimit));
   const easy = evs[0];
   assert.ok(scaledLimit(easy, easy.oxygenLimit)! > easy.oxygenLimit!);
+});
+
+// ---- landing stars: contract reward multiplier (landing-stars-v1) -----------------------------------
+t("contract reward multiplier: a landing that finishes the contract scales credits (1 star x1.0, 2 x1.15, 3 x1.3)", () => {
+  const def = CONTRACTS.find((c: any) => c.id === "moon-rescue-solo")!;
+  const run = (stars?: number) => {
+    const x = toRescue("moon-rescue-solo", "moon", "moon-flats");
+    x.m.interact("crew");
+    x.m.handle({ type: "landed", body: "earth", zone: "earth-pad", ...(stars === undefined ? {} : { stars }) });
+    return x.log.finished[0];
+  };
+  const base = def.reward.credits + def.reward.crewBonus.credits;
+  assert.equal(run(1).reward.credits, base);
+  assert.equal(run(2).reward.credits, Math.round(base * 1.15));
+  assert.equal(run(3).reward.credits, Math.round(base * 1.3));
+  assert.equal(run(3).stars, 3);
+  assert.equal(run(3).starMult, 1.3);
+  assert.equal(run(undefined).reward.credits, base);
+  assert.equal(run(undefined).stars, 0);
 });
 
 console.log(`\n${passed} passed`);

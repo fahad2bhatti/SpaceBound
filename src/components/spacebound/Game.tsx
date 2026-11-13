@@ -42,6 +42,7 @@ import { haptic } from "@/game/haptics";
 import { pickHint } from "@/game/hints";
 import { placeWaypoint } from "@/game/waypoint";
 import { ContractBoard, ContractHud, ContractResultView } from "./Contracts";
+import { LandingPanel } from "./Landing";
 // phone-fix-map-v1
 import { App as CapApp } from "@capacitor/app";
 // phone-fix-menu-v1
@@ -188,6 +189,9 @@ export function Game() {
         )}
         {snap && snap.screen === "play" && !snap.modal && !snap.contracts.result && <Tips snap={snap} act={act} touch={touchUi} />}
         {snap && snap.screen === "play" && <ContractResultView snap={snap} act={act} />}
+        {snap && snap.screen === "play" && snap.landing && !snap.modal && !snap.contracts.result && (
+          <LandingPanel key={snap.landing.id} snap={snap} act={act} />
+        )}
         {snap?.toast && (
           <p className="absolute left-1/2 top-[4.5rem] max-w-md -translate-x-1/2 border border-line bg-bg/90 px-4 py-2 text-center text-sm text-fg sb-toast">
             {snap.toast}

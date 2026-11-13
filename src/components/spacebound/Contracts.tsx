@@ -85,7 +85,7 @@ export function ContractHud({ snap }: { snap: Snap }) {
       </button>
       {!collapsed && (
         <div className="space-y-2 px-3 pb-2">
-          {a.time && <Meter label="TIME" m={a.time} />}
+          {a.time && <Meter label={a.type === "rescue" ? "CREW OXYGEN" : "TIME"} m={a.time} />}
           {a.oxygen && <Meter label="EVA OXYGEN" m={a.oxygen} />}
           <ul className="space-y-1">
             {a.objectives.map((o) => (
@@ -122,6 +122,7 @@ function Card({ c, act }: { c: BoardCard; act: Act }) {
       <p className="mt-1 text-xs text-muted">
         {BODIES[c.planet].name}
         {c.target ? ` · ${c.target}` : ""}
+        {c.bestStars ? <span className="ml-2 text-accent" title="Best landing here">{"★".repeat(c.bestStars)}{"☆".repeat(3 - c.bestStars)}</span> : null}
       </p>
       <p className="mt-1 text-sm text-muted">{c.description}</p>
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -204,11 +205,17 @@ export function ContractResultView({ snap, act }: { snap: Snap; act: Act }) {
           <>
             <p className="mt-3 font-display text-2xl text-primary">+{formatInt(r.reward.credits)} CR</p>
             {r.reward.xp > 0 && <p className="text-sm text-muted">+{r.reward.xp} XP</p>}
+            {r.crewSaved > 0 && <p className="text-sm text-muted">Crew rescued: {r.crewSaved}</p>}
+            {r.stars > 0 && (
+              <p className="text-sm text-muted">
+                Landing {"★".repeat(r.stars)}{"☆".repeat(3 - r.stars)} · reward x{r.starMult.toFixed(2)}
+              </p>
+            )}
             <p className="mt-2 text-sm text-muted">Time on contract {formatClock(r.elapsed)}.</p>
             {r.unlocked.length > 0 && <p className="mt-2 text-sm text-accent">New contract unlocked: {r.unlocked.join(", ")}.</p>}
           </>
         ) : (
-          <p className="mt-3 text-sm leading-relaxed text-muted">{r.reason ? FAIL_TEXT[r.reason] : "The contract ended."}</p>
+          <p className="mt-3 text-sm leading-relaxed text-muted">{r.reason === "time" && r.type === "rescue" ? "The crew ran out of air." : r.reason === "oxygen" && r.type === "eva-repair" ? "You ran out of oxygen during the spacewalk." : r.reason ? FAIL_TEXT[r.reason] : "The contract ended."}</p>
         )}
         <div className="mt-5 grid grid-cols-2 gap-2">
           {ok ? (

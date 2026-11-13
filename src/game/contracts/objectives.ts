@@ -10,7 +10,7 @@ export type HandlerCtx<K extends ObjectiveType = ObjectiveType> = {
   inventory: Record<string, number>;
 };
 
-export type SpotInfo = { spot: Spot; kind: "pickup" | "drop" };
+export type SpotInfo = { spot: Spot; kind: "pickup" | "drop"; /** Marker look. Omit for the default crate / beacon. */ icon?: "crew" | "repair" };
 
 // Method syntax on purpose: it keeps handlers for one type assignable to the registry's wide type.
 export interface ObjectiveHandler<K extends ObjectiveType = ObjectiveType> {
@@ -24,6 +24,8 @@ export interface ObjectiveHandler<K extends ObjectiveType = ObjectiveType> {
   spot?(c: HandlerCtx<K>): SpotInfo | null;
   /** The player pressed E on this objective's spot. Return true if it was used. */
   interact?(c: HandlerCtx<K>): boolean;
+  /** The player is holding E on this objective's spot for `dt` seconds. Return true if it counted. */
+  hold?(dt: number, c: HandlerCtx<K>): boolean;
   /** Short progress text for the checklist, e.g. "12 / 30 s". */
   progress?(c: HandlerCtx<K>): string | null;
   /** A landing-zone id (planets.ts) the game should reveal on the HUD while this objective is current. */
@@ -111,6 +113,72 @@ registerObjective("surviveTime", {
   },
   progress(c) {
     return `${Math.floor(c.state.value)} / ${Math.round(c.state.target)} s`;
+  },
+});
+
+// Crew stand in a short row around `at` (spacing CREW_GAP m, along z). Only the next one is marked, so one E = one rescue.
+const CREW_GAP = 3.5;
+const crewCount = (p: ObjectiveParamsMap["rescueCrew"]): number => Math.min(3, Math.max(1, Math.round(p.count)));
+
+registerObjective("rescueCrew", {
+  target(p) {
+    return crewCount(p as ObjectiveParamsMap["rescueCrew"]);
+  },
+  spot(c) {
+    if (c.state.done) return null;
+    const p = c.params as ObjectiveParamsMap["rescueCrew"];
+    const n = crewCount(p);
+    const i = Math.min(n - 1, Math.floor(c.state.value));
+    const z = p.at.z + (i - (n - 1) / 2) * CREW_GAP;
+    return { spot: { ...p.at, z, label: p.label ?? p.at.label }, kind: "pickup", icon: "crew" };
+  },
+  interact(c) {
+    if (c.state.done) return false;
+    c.inventory.crew = (c.inventory.crew ?? 0) + 1;
+    c.state.value = Math.min(c.state.target, c.state.value + 1);
+    if (c.state.value >= c.state.target) complete(c);
+    return true;
+  },
+  progress(c) {
+    return `${Math.floor(c.state.value)} / ${Math.round(c.state.target)}`;
+  },
+});
+
+// EVA repair: hold E on the glowing marker. With bolts > 1 the same point needs that many holds, each at its own marker.
+const BOLT_RING = 0.7;
+const boltsOf = (p: ObjectiveParamsMap["repairPoint"]): number => Math.min(4, Math.max(1, Math.round(p.bolts ?? 1)));
+
+registerObjective("repairPoint", {
+  target(p) {
+    const q = p as ObjectiveParamsMap["repairPoint"];
+    return Math.max(1, q.seconds) * boltsOf(q);
+  },
+  spot(c) {
+    if (c.state.done) return null;
+    const p = c.params as ObjectiveParamsMap["repairPoint"];
+    const n = boltsOf(p);
+    const i = Math.min(n - 1, Math.floor(c.state.value / Math.max(1, p.seconds)));
+    const a = (i / n) * Math.PI * 2;
+    const at = n > 1 ? { ...p.at, x: p.at.x + Math.cos(a) * BOLT_RING, z: p.at.z + Math.sin(a) * BOLT_RING } : p.at;
+    return { spot: { ...at, label: n > 1 ? `${p.label} (bolt ${i + 1}/${n})` : p.label }, kind: "pickup", icon: "repair" };
+  },
+  hold(dt, c) {
+    if (c.state.done) return false;
+    c.state.value = Math.min(c.state.target, c.state.value + dt);
+    if (c.state.value >= c.state.target) complete(c);
+    return true;
+  },
+  progress(c) {
+    const p = c.params as ObjectiveParamsMap["repairPoint"];
+    const n = boltsOf(p);
+    if (n > 1) return `Bolt ${Math.min(n, Math.floor(c.state.value / Math.max(1, p.seconds)) + 1)} / ${n}`;
+    return `${Math.floor(c.state.value)} / ${Math.round(c.state.target)} s`;
+  },
+});
+
+registerObjective("returnToShuttle", {
+  onEvent(ev, c) {
+    if (ev.type === "evaEnded") complete(c);
   },
 });
 

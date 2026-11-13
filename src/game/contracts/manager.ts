@@ -11,6 +11,7 @@ import type { BodyId } from "../catalog";
 import { CONTRACTS, DIFFICULTY_ORDER, scaledLimit } from "./data";
 import { getHandler, type HandlerCtx } from "./objectives";
 import { defaultContractsSave } from "./state";
+import { starMultiplier } from "../landing";
 import type {
   ActiveContract,
   ActiveView,
@@ -151,6 +152,9 @@ export class ContractManager {
   }
 
   /** Indices of objectives that currently accept events: first unfinished one (sequence) or all unfinished (parallel). */
+  /** Stars of the landing event being handled right now (0 outside a landing). Read by succeed() for the reward multiplier. */
+  private landStars = 0;
+
   private liveIdx(def: ContractDef, a: ActiveContract): number[] {
     const open: number[] = [];
     def.objectives.forEach((o, i) => {
@@ -288,7 +292,7 @@ export class ContractManager {
     if (!def || !a) return;
     this.slice.active = null;
     this.slice.stats.failed += 1;
-    this.result = { kind: "failed", id: def.id, title: def.title, reason, elapsed: a.elapsed, unlocked: [] };
+    this.result = { kind: "failed", id: def.id, title: def.title, reason, type: def.type, crewSaved: a.inventory.crew ?? 0, stars: 0, starMult: 1, elapsed: a.elapsed, unlocked: [] };
     this.touch();
     this.hooks.onFinish?.(this.result);
   }
@@ -307,14 +311,23 @@ export class ContractManager {
         unlockedTitles.push(target.title);
       }
     }
-    const xp = def.reward.xp ?? 0;
+    const crewSaved = a.inventory.crew ?? 0;
+    // landing-stars-v1: a landing that finishes the contract scales the credits (1 star x1.0, 2 x1.15, 3 x1.3)
+    const stars = this.landStars;
+    const starMult = stars > 0 ? starMultiplier(stars) : 1;
+    const credits = Math.round((def.reward.credits + crewSaved * (def.reward.crewBonus?.credits ?? 0)) * starMult);
+    const xp = (def.reward.xp ?? 0) + crewSaved * (def.reward.crewBonus?.xp ?? 0);
     this.slice.xp += xp;
     this.slice.stats.done += 1;
     this.result = {
       kind: "success",
       id: def.id,
       title: def.title,
-      reward: { credits: def.reward.credits, xp },
+      reward: { credits, xp },
+      type: def.type,
+      crewSaved,
+      stars,
+      starMult,
       elapsed: a.elapsed,
       unlocked: unlockedTitles,
     };
@@ -357,8 +370,8 @@ export class ContractManager {
         return;
       }
     }
-    if (a.oxygenLeft !== null && w.onFoot) {
-      a.oxygenLeft -= dt;
+    if (a.oxygenLeft !== null && (w.onFoot || w.onEva)) {
+      a.oxygenLeft -= dt * (w.drainMult ?? 1);
       if (a.oxygenLeft <= 0) {
         a.oxygenLeft = 0;
         this.fail("oxygen");
@@ -384,18 +397,23 @@ export class ContractManager {
       this.fail("crash");
       return;
     }
-    for (const i of this.liveIdx(def, a)) {
-      const h = getHandler(def.objectives[i]!.type);
-      if (!h?.onEvent) continue;
-      const c = this.hctx(def, a, i);
-      const was = c.state.done;
-      h.onEvent(ev, c);
-      if (this.settle(def, a, i, was)) return;
+    this.landStars = ev.type === "landed" ? (ev.stars ?? 0) : 0;
+    try {
+      for (const i of this.liveIdx(def, a)) {
+        const h = getHandler(def.objectives[i]!.type);
+        if (!h?.onEvent) continue;
+        const c = this.hctx(def, a, i);
+        const was = c.state.done;
+        h.onEvent(ev, c);
+        if (this.settle(def, a, i, was)) return;
+      }
+    } finally {
+      this.landStars = 0;
     }
   }
 
   /** Interactable spots for the scene the player is in. `body` = surface body, or null on the pad. */
-  spots(scene: "pad" | "surface", body: BodyId | null): SpotView[] {
+  spots(scene: "pad" | "surface" | "eva", body: BodyId | null): SpotView[] {
     const def = this.activeDef();
     const a = this.slice.active;
     if (!def || !a || this.result) return [];
@@ -404,7 +422,7 @@ export class ContractManager {
       const info = getHandler(def.objectives[i]!.type)?.spot?.(this.hctx(def, a, i));
       if (!info || info.spot.scene !== scene) continue;
       if (scene === "surface" && info.spot.body && info.spot.body !== body) continue;
-      out.push({ key: def.objectives[i]!.id, x: info.spot.x, z: info.spot.z, label: info.spot.label, kind: info.kind });
+      out.push({ key: def.objectives[i]!.id, x: info.spot.x, z: info.spot.z, label: info.spot.label, kind: info.kind, icon: info.icon, y: info.spot.y });
     }
     return out;
   }
@@ -425,6 +443,41 @@ export class ContractManager {
       return true;
     }
     return false;
+  }
+
+  /** E held on a spot for `dt` seconds (hold-to-repair). Cheap: only bumps `rev` when the marker moves or the objective finishes. */
+  hold(key: string, dt: number): boolean {
+    const def = this.activeDef();
+    const a = this.slice.active;
+    if (!def || !a || this.result) return false;
+    for (const i of this.liveIdx(def, a)) {
+      if (def.objectives[i]!.id !== key) continue;
+      const h = getHandler(def.objectives[i]!.type);
+      if (!h?.hold) return false;
+      const c = this.hctx(def, a, i);
+      const was = c.state.done;
+      const before = h.spot?.(c)?.spot;
+      if (!h.hold(dt, c)) return false;
+      if (this.settle(def, a, i, was)) return true;
+      const after = h.spot?.(c)?.spot;
+      if (before && after && (before.x !== after.x || before.z !== after.z)) this.rev++;
+      return true;
+    }
+    return false;
+  }
+
+  /** World hazards of the active contract (engine spawns them). */
+  hazards(): { debris: number } {
+    return { debris: this.activeDef()?.hazards?.debris ?? 0 };
+  }
+
+  /** Take `seconds` of oxygen away at once (debris hit). Fails the contract if that empties the tank. */
+  drainOxygen(seconds: number): void {
+    const a = this.slice.active;
+    if (!a || a.oxygenLeft === null || this.result) return;
+    a.oxygenLeft = Math.max(0, a.oxygenLeft - seconds);
+    if (a.oxygenLeft <= 0) this.fail("oxygen");
+    else this.hooks.onChange?.();
   }
 
   /** Landing-zone ids the HUD should reveal for the current objectives. */
@@ -456,6 +509,7 @@ export class ContractManager {
     return {
       id: def.id,
       title: def.title,
+      type: def.type,
       difficulty: def.difficulty,
       objectives: def.objectives.map((o, i) => {
         const h = getHandler(o.type);

@@ -60,6 +60,33 @@ Do not uninstall the app casually: it wipes the localStorage save.
   (The apply_*.mjs scripts are gitignored and may no longer exist.)
 - Commit to branch fix-all-app, push with plain `git push`. Never force-push.
 
+## Contracts: rescue (4A) and EVA station repair (4B)
+Branch feature/eva (built on feature/rescue-eva). Contract content lives in `src/game/contracts/data.ts`, behaviour in `objectives.ts`
+(`registerObjective`), events in `ContractEventMap` (types.ts). Nothing type-specific is hard-coded in the engine.
+- **4A rescue**: objective `rescueCrew` { at, count 1-3 } (E on the marker, only the next crew marker is shown, inventory.crew counts),
+  contract `type: "rescue"` relabels the timer "CREW OXYGEN", fail text "The crew ran out of air.", `reward.crewBonus` per crew saved.
+  Missions: moon-rescue-solo / moon-rescue-pair / mars-rescue-trio.
+- **4B station**: Vesper Station now sits on the Earth-Moon line, `STATION_DIST` (75 su) from Earth, range rating 80 (catalog DESTS.station.route).
+  Model is `buildStation()` (primitives). Repair points are station-local `Spot`s with `scene: "eva"` and x/y/z.
+- **4B EVA phase** (`phase === "eva"`, engine.ts `// eva-v1` block): from flight, within 9 su of the station and under 8 su/s, prompt "E Start EVA".
+  The shuttle is frozen (updateFlight does not run) and EVA has its own controls: W/S thrust, A/D turn, Space up, X down, hold E repair,
+  E near the shuttle (2.2 su) = airlock. Phone: stick + E (tap/hold) + UP/DOWN. Camera reuses the Phase 1 free camera via `stepFreeCam()`.
+  Oxygen drains in `onFoot || onEva`, multiplied 1x -> 3x between 10 and 20 su from the shuttle (soft limit). HUD: range, arrow to shuttle, hold bar.
+- **Objectives**: `repairPoint` { at, seconds, label, bolts? } (hold-to-repair via `manager.hold()`; bolts > 1 = that many holds, each at its own marker),
+  `returnToShuttle` (completed by the `evaEnded` event). Hazards: `ContractDef.hazards.debris` floating debris, hit = -8 s oxygen
+  (`manager.drainOxygen`). Station alarm lamp blinks red when timer or oxygen is in its last 30 s.
+- **EVA contracts** (type "eva-repair"): eva-quick-fix (easy), eva-station-service (normal, 3-bolt panel), eva-debris-storm (hard, 3 debris).
+  Flow: reachLocation(station) -> repairPoint(s) -> returnToShuttle -> returnToEarth.
+- Save: no schema change. EVA state is not saved; a reload during EVA resumes in flight at the shuttle, the contract (progress, oxygen) is kept.
+- Not verified on a device yet: EVA feel and speeds (EVA_ACCEL / EVA_MAX), marker reach (EVA_REACH), crew marker placement on rocks, FPS on phone.
+
+## Landing stars (branch feature/landing-stars)
+- `src/game/landing.ts`: `LANDING_CFG` holds every threshold (stars: descent / drift / tilt / center-of-zone, Perfect Landing limits + bonus 150 cr, contract multiplier 1 / 1.15 / 1.3, score weights). `rateLanding()` gives 1-3 stars (assist caps at 2), `gradeLanding()` is unchanged.
+- Engine: `resolveGround` measures tilt and zone-center distance, `recordLanding` returns a `LandingResult` shown by `components/spacebound/Landing.tsx` (non-blocking, tap skips, low quality / reduced motion = no animation). The `landed` contract event carries `stars`; `manager.succeed()` multiplies the credits of a contract finished by that landing. Free-roam credits are unchanged (grade bonus + the Perfect bonus).
+- Save v3: `best` (stars + score per planet id and zone id) and `badges`; `sanitize()` is the migration (v1/v2 load with empty best). Mission board cards show best stars of their planet.
+- Share: `src/game/share.ts` (config: game name + placeholder link). Capacitor Share on the phone (needs `npm i` + `npx cap sync android` once), Web Share in browsers, clipboard fallback. Text only, no share-card image.
+- Tests: `npx tsx scripts/landing.test.mts` (stars, score, multiplier, best, migration, share text) and `npx tsx scripts/contracts.test.mts`.
+
 ## Known issues / untested
 - `npx tsc --noEmit` shows old type errors (e.g. Input.override is private but used by the engine). Vite build ignores them.
 - Changing the destination mid-flight (MAP button) was not tested against mission/landing rules.

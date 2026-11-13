@@ -9,6 +9,7 @@ import {
 import { HINT_IDS } from "./hints";
 import { defaultContractsSave, sanitizeContracts } from "./contracts/state";
 import type { ContractsSave } from "./contracts/types";
+import type { LandingBest, LandingBests } from "./landing";
 
 export type Quality = "low" | "medium" | "high";
 
@@ -48,10 +49,11 @@ export type Resume = {
 };
 
 /**
- * Save format version. 2 added `contracts` (contracts-v1). The storage key stays the same and sanitize() fills
- * anything missing, so v1 saves load unchanged: no migration step is needed, just defaults for new fields.
+ * Save format version. 2 added `contracts` (contracts-v1), 3 added `best` and `badges` (landing-stars-v1).
+ * The storage key stays the same and sanitize() is the migration: it fills anything missing with defaults, so
+ * v1 / v2 saves load unchanged and come out as version 3.
  */
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 export type SaveData = {
   version: typeof SAVE_VERSION;
@@ -74,6 +76,10 @@ export type SaveData = {
   zonesClaimed: string[];
   /** contracts-v1: contract board, active contract progress, completed list. */
   contracts: ContractsSave;
+  /** landing-stars-v1: best stars + score per planet id and per landing zone id. */
+  best: LandingBests;
+  /** landing-stars-v1: earned badges, e.g. "perfect-landing". */
+  badges: string[];
   resume: Resume | null;
 };
 
@@ -114,6 +120,8 @@ export function defaultSave(): SaveData {
     zonesFound: [],
     zonesClaimed: [],
     contracts: defaultContractsSave(),
+    best: {},
+    badges: [],
     resume: null,
   };
 }
@@ -122,7 +130,7 @@ function clamp(n: number, a: number, b: number): number {
   return Math.max(a, Math.min(b, n));
 }
 
-function sanitize(raw: Partial<SaveData>): SaveData {
+export function sanitize(raw: Partial<SaveData>): SaveData {
   const base = defaultSave();
   const owned = (Array.isArray(raw.owned) ? raw.owned : base.owned).filter(
     (id): id is ShipId => typeof id === "string" && id in SHIPS,
@@ -207,8 +215,21 @@ function sanitize(raw: Partial<SaveData>): SaveData {
     zonesFound: Array.isArray(raw.zonesFound) ? raw.zonesFound.filter((x): x is string => typeof x === "string") : [],
     zonesClaimed: Array.isArray(raw.zonesClaimed) ? raw.zonesClaimed.filter((x): x is string => typeof x === "string") : [],
     contracts: sanitizeContracts(raw.contracts),
+    best: sanitizeBest(raw.best),
+    badges: Array.isArray(raw.badges) ? raw.badges.filter((x): x is string => typeof x === "string") : [],
     resume: raw.resume ?? null,
   };
+}
+
+/** Keep only well-formed best entries (stars 0-3, score >= 0). */
+export function sanitizeBest(raw: unknown): LandingBests {
+  const out: LandingBests = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [k, v] of Object.entries(raw as Record<string, Partial<LandingBest>>)) {
+    if (!v || typeof v.stars !== "number" || typeof v.score !== "number") continue;
+    out[k] = { stars: Math.max(0, Math.min(3, Math.round(v.stars))), score: Math.max(0, Math.round(v.score)) };
+  }
+  return out;
 }
 
 export function loadSave(): SaveData {

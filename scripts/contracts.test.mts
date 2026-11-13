@@ -63,14 +63,18 @@ t("board: one contract per difficulty", () => {
   assert.deepEqual(cards.map((c: any) => c.difficulty), ["easy", "normal", "hard"]);
 });
 
-t("starter ship: only contracts it can fly are available, rest locked with a reason", () => {
+t("starter ship: contracts above its range are locked with a reason, the rest are available", () => {
   const { m } = make({ range: 90, ship: "starter" });
   const cards = m.boardView();
   assert.equal(cards[0].status, "available");
-  assert.equal(cards[1].status, "locked");
-  assert.match(cards[1].lockedReason, /210/);
-  assert.match(cards[2].lockedReason, /470/);
-  assert.match(m.accept(cards[1].id)!, /210/);
+  for (const c of cards) {
+    const def = CONTRACTS.find((d: any) => d.id === c.id)!;
+    if ((def.requirements?.minRange ?? 0) > 90) {
+      assert.equal(c.status, "locked");
+      assert.match(c.lockedReason, /210|470/);
+      assert.match(m.accept(c.id)!, /210|470/);
+    } else assert.equal(c.status, "available");
+  }
 });
 
 t("time limits are scaled by difficulty", () => {
@@ -279,7 +283,7 @@ t("save: v1 save without contracts loads with defaults; damaged data is repaired
   assert.equal(s.board.length, 3);
   assert.equal(s.xp, 0);
   assert.equal(s.active, null);
-  assert.equal(defaultSave().version, 2);
+  assert.equal(defaultSave().version, 3);
   assert.deepEqual(defaultSave().contracts, defaultContractsSave());
 });
 
@@ -308,6 +312,187 @@ t("manager state survives a JSON round trip (save/load) mid-contract", () => {
   assert.equal(Math.round(again.m.data.active!.timeLeft!), 558);
   assert.equal(again.m.data.active!.inventory.cargo, 1);
   assert.equal(again.m.activeView()!.objectives[1]!.current, true);
+});
+
+// ---- rescue (Part 4A) ----------------------------------------------------------------------------
+const toRescue = (id: string, body: string, zone: string) => {
+  const x = make({ range: 500 });
+  assert.equal(x.m.accept(id, { retry: true }), null);
+  x.m.handle({ type: "landed", body, zone });
+  return x;
+};
+
+t("rescueCrew: progress 0/2 -> 1/2 -> 2/2, one marker at a time, crew counted in inventory", () => {
+  const { m } = toRescue("moon-rescue-pair", "moon", "moon-beacon");
+  const view = () => m.activeView()!.objectives.find((o: any) => o.id === "crew")!;
+  assert.equal(view().progress, "0 / 2");
+  const s1 = m.spots("surface", "moon");
+  assert.equal(s1.length, 1);
+  assert.equal(s1[0].icon, "crew");
+  assert.equal(m.spots("surface", "mars").length, 0);
+  assert.equal(m.interact("crew"), true);
+  assert.equal(view().progress, "1 / 2");
+  assert.equal(m.data.active!.inventory.crew, 1);
+  const s2 = m.spots("surface", "moon");
+  assert.notEqual(s2[0].z, s1[0].z);
+  assert.equal(m.interact("crew"), true);
+  assert.equal(m.data.active!.inventory.crew, 2);
+  assert.equal(m.spots("surface", "moon").length, 0);
+  assert.equal(m.interact("crew"), false);
+});
+
+t("rescueCrew: partial crew does not finish; success pays base + crew bonus", () => {
+  const { m, log } = toRescue("mars-rescue-trio", "mars", "mars-dunes");
+  m.interact("crew");
+  m.interact("crew");
+  m.handle({ type: "landed", body: "earth", zone: "earth-pad" });
+  assert.equal(log.finished.length, 0);
+  m.interact("crew");
+  m.handle({ type: "landed", body: "earth", zone: "earth-pad" });
+  const r = log.finished[0];
+  const d = CONTRACTS.find((c: any) => c.id === "mars-rescue-trio")!;
+  assert.equal(r.kind, "success");
+  assert.equal(r.crewSaved, 3);
+  assert.equal(r.reward.credits, d.reward.credits + 3 * d.reward.crewBonus.credits);
+  assert.equal(r.reward.xp, d.reward.xp + 3 * d.reward.crewBonus.xp);
+});
+
+t("rescue: timer running out fails with reason time and keeps the rescue type for the message", () => {
+  const { m, log } = toRescue("moon-rescue-solo", "moon", "moon-flats");
+  m.tick(10, walking());
+  m.tick(99999, walking());
+  const r = log.finished[0];
+  assert.equal(r.kind, "failed");
+  assert.equal(r.reason, "time");
+  assert.equal(r.type, "rescue");
+  assert.equal(r.crewSaved, 0);
+});
+
+t("rescue: save/restore mid-rescue keeps crew progress and the marker", () => {
+  const { m } = toRescue("moon-rescue-pair", "moon", "moon-beacon");
+  m.interact("crew");
+  m.tick(5, walking());
+  const saved = JSON.parse(JSON.stringify(m.data));
+  const again = make({ range: 500 });
+  again.m.bind(sanitizeContracts(saved));
+  assert.equal(again.m.data.active!.inventory.crew, 1);
+  assert.equal(again.m.activeView()!.objectives.find((o: any) => o.id === "crew")!.progress, "1 / 2");
+  assert.equal(again.m.spots("surface", "moon").length, 1);
+  assert.equal(again.m.interact("crew"), true);
+  assert.ok(again.m.data.active!.objectives.crew.done);
+});
+
+// ---- EVA repair (Part 4B) ------------------------------------------------------------------------
+const eva = (dist = 3) => ({ phase: "eva", flying: false, onFoot: false, onEva: true, drainMult: 1, speed: 0, distToDest: () => dist });
+const toEva = (id: string) => {
+  const x = make({ range: 500 });
+  assert.equal(x.m.accept(id, { retry: true }), null);
+  x.m.tick(0.1, flying(5, 2)); // parked next to the station
+  return x;
+};
+
+t("repairPoint: hold-to-repair progress, marker is an eva spot, finishes at `seconds`", () => {
+  const { m, log } = toEva("eva-quick-fix");
+  const sp = m.spots("eva", null);
+  assert.equal(sp.length, 1);
+  assert.equal(sp[0].icon, "repair");
+  assert.equal(typeof sp[0].y, "number");
+  assert.equal(m.spots("surface", "moon").length, 0);
+  assert.equal(m.hold("r1", 2), true);
+  assert.equal(m.activeView()!.objectives.find((o: any) => o.id === "r1")!.progress, "2 / 4 s");
+  assert.equal(log.objectives.length, 1); // only "park at the station" so far
+  m.hold("r1", 2.1);
+  assert.equal(log.objectives.length, 2);
+  assert.equal(m.hold("r1", 1), false);
+});
+
+t("repairPoint: partial repair is kept, 3-bolt point moves its marker after each bolt", () => {
+  const { m } = toEva("eva-station-service");
+  m.hold("r1", 4);
+  m.hold("r2", 5);
+  const a = m.spots("eva", null)[0];
+  assert.match(a.label, /bolt 1\/3/);
+  const rev = m.rev;
+  m.hold("r3", 3.2);
+  const b = m.spots("eva", null)[0];
+  assert.match(b.label, /bolt 2\/3/);
+  assert.ok(a.x !== b.x || a.z !== b.z);
+  assert.ok(m.rev > rev);
+  m.hold("r3", 3);
+  m.hold("r3", 3);
+  assert.equal(m.data.active!.objectives.r3.done, true);
+});
+
+t("returnToShuttle needs the repairs first, then evaEnded completes it", () => {
+  const { m, log } = toEva("eva-quick-fix");
+  m.handle({ type: "evaEnded" });
+  assert.equal(m.data.active!.objectives.back.done, false);
+  m.hold("r1", 5);
+  m.handle({ type: "evaEnded" });
+  assert.equal(m.data.active!.objectives.back.done, true);
+  m.handle({ type: "landed", body: "earth", zone: "earth-pad" });
+  assert.equal(log.finished[0].kind, "success");
+});
+
+t("eva oxygen: drains on EVA only (with the range multiplier), fails with reason oxygen", () => {
+  const { m, log } = toEva("eva-quick-fix");
+  const full = m.data.active!.oxygenLeft!;
+  m.tick(10, flying(5, 2));
+  assert.equal(m.data.active!.oxygenLeft, full);
+  m.tick(10, eva());
+  assert.equal(Math.round(m.data.active!.oxygenLeft!), Math.round(full - 10));
+  m.tick(10, { ...eva(), drainMult: 3 });
+  assert.equal(Math.round(m.data.active!.oxygenLeft!), Math.round(full - 40));
+  m.drainOxygen(5);
+  assert.equal(Math.round(m.data.active!.oxygenLeft!), Math.round(full - 45));
+  for (let i = 0; i < 30 && !log.finished.length; i++) m.tick(20, eva());
+  assert.equal(log.finished[0].reason, "oxygen");
+  assert.equal(log.finished[0].type, "eva-repair");
+});
+
+t("eva: save/restore mid-repair keeps hold progress, oxygen and the bolt marker", () => {
+  const { m } = toEva("eva-station-service");
+  m.hold("r1", 4);
+  m.hold("r2", 5);
+  m.hold("r3", 4);
+  m.tick(7, eva());
+  const saved = JSON.parse(JSON.stringify(m.data));
+  const again = make({ range: 500 });
+  again.m.bind(sanitizeContracts(saved));
+  assert.equal(again.m.activeView()!.objectives.find((o: any) => o.id === "r3")!.progress, "Bolt 2 / 3");
+  assert.match(again.m.spots("eva", null)[0].label, /bolt 2\/3/);
+  assert.equal(Math.round(again.m.data.active!.oxygenLeft!), Math.round(saved.active.oxygenLeft));
+});
+
+t("eva contracts: hazards, oxygen scale with difficulty, three missions exist", () => {
+  const evs = CONTRACTS.filter((d: any) => d.type === "eva-repair");
+  assert.deepEqual(evs.map((d: any) => d.difficulty), ["easy", "normal", "hard"]);
+  const hard = evs[2];
+  const { m } = make({ range: 500 });
+  m.accept(hard.id, { retry: true });
+  assert.equal(m.hazards().debris, 3);
+  assert.equal(m.data.active!.oxygenLeft, scaledLimit(hard, hard.oxygenLimit));
+  const easy = evs[0];
+  assert.ok(scaledLimit(easy, easy.oxygenLimit)! > easy.oxygenLimit!);
+});
+
+// ---- landing stars: contract reward multiplier (landing-stars-v1) -----------------------------------
+t("contract reward multiplier: a landing that finishes the contract scales credits (1 star x1.0, 2 x1.15, 3 x1.3)", () => {
+  const def = CONTRACTS.find((c: any) => c.id === "moon-rescue-solo")!;
+  const run = (stars?: number) => {
+    const x = toRescue("moon-rescue-solo", "moon", "moon-flats");
+    x.m.interact("crew");
+    x.m.handle({ type: "landed", body: "earth", zone: "earth-pad", ...(stars === undefined ? {} : { stars }) });
+    return x.log.finished[0];
+  };
+  const base = def.reward.credits + def.reward.crewBonus.credits;
+  assert.equal(run(1).reward.credits, base);
+  assert.equal(run(2).reward.credits, Math.round(base * 1.15));
+  assert.equal(run(3).reward.credits, Math.round(base * 1.3));
+  assert.equal(run(3).stars, 3);
+  assert.equal(run(3).starMult, 1.3);
+  assert.equal(run(undefined).reward.credits, base);
+  assert.equal(run(undefined).stars, 0);
 });
 
 console.log(`\n${passed} passed`);

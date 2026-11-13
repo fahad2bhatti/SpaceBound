@@ -225,3 +225,15 @@
   /* with a contract panel in the left column, the suit oxygen box moves to the right edge under the destination box */
   .sb-ox-c { left: auto; right: 0.75rem; top: 4.5rem; }
 }
+
+/* landing-stars-v1 */
+@keyframes sb-star-pop {
+  0% { transform: scale(0) rotate(-40deg); opacity: 0; }
+  60% { transform: scale(1.35) rotate(8deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+.sb-star { opacity: 0; animation: sb-star-pop 0.38s cubic-bezier(0.2, 0.9, 0.3, 1.2) forwards; }
+.sb-landing-instant .sb-star { opacity: 1; animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .sb-star { opacity: 1; animation: none; }
+}

@@ -310,9 +310,9 @@ export const DESTS: Record<DestId, DestDef> = {
   station: {
     id: "station",
     name: "Vesper Station",
-    route: 45,
+    route: 80,
     body: null,
-    blurb: "Crewed platform in low Earth orbit. Match speed and close in.",
+    blurb: "Crewed platform on the Earth-Moon route. Match speed, close in, and suit up if it needs repairs.",
   },
   moon: {
     id: "moon",

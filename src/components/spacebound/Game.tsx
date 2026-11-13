@@ -932,6 +932,36 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
           <p className="mt-2 text-xs text-muted">Ship {Math.round(snap.shipDist)} m · Samples {Math.min(3, snap.sampleCount)}/3</p>
         </div>
       )}
+      {snap.phase === "eva" && snap.eva && (
+        <>
+          <div className="absolute bottom-6 left-4 border border-line bg-bg/80 p-3 backdrop-blur-md sb-ox">
+            <p className="text-xs text-muted">SHUTTLE RANGE</p>
+            <p className="font-display text-3xl">{Math.round(snap.eva.range)} su</p>
+            <div className="mt-1 h-1.5 w-32 bg-line">
+              <div
+                className={"h-full " + (snap.eva.drain > 1.05 ? "bg-danger" : "bg-primary")}
+                style={{ width: `${Math.min(100, (snap.eva.range / snap.eva.max) * 100)}%` }}
+              />
+            </div>
+            <p className={"mt-1 text-xs " + (snap.eva.drain > 1.05 ? "text-danger" : "text-muted")}>
+              {snap.eva.drain > 1.05 ? `Oxygen draining ${snap.eva.drain.toFixed(1)}x. Head back.` : "Within safe range"}
+            </p>
+          </div>
+          {snap.eva.range > snap.eva.safe * 0.8 && (
+            <div className="pointer-events-none absolute left-1/2 top-1/3 -translate-x-1/2 text-center text-accent">
+              <div className="text-4xl leading-none" style={{ transform: `rotate(${snap.eva.arrow}rad)` }}>
+                ▲
+              </div>
+              <p className="text-xs uppercase">Shuttle</p>
+            </div>
+          )}
+          {snap.eva.holding && (
+            <div className="pointer-events-none absolute bottom-24 left-1/2 h-2 w-56 -translate-x-1/2 border border-line bg-bg/80">
+              <div className="h-full bg-primary" style={{ width: `${Math.round(snap.eva.hold * 100)}%` }} />
+            </div>
+          )}
+        </>
+      )}
       {snap.prompt && (
         <p className="absolute bottom-6 left-1/2 -translate-x-1/2 border border-accent bg-bg/90 px-4 py-2 font-display text-xl uppercase tracking-wide sb-prompt">
           {snap.prompt}
@@ -1010,6 +1040,7 @@ function CheckBtn({ on, label, onClick }: { on: boolean; label: string; onClick:
 // phone-fix-dpad-v1
 function Touch({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => void }) {
   const flight = snap.phase === "flight";
+  const eva = snap.phase === "eva";
   const setStick = (x: number, y: number) => act((e) => e.input.setTouch({ x, y }));
   const scale = snap.settings.touchScale;
   return (
@@ -1034,9 +1065,24 @@ function Touch({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
         <Stick onChange={setStick} scale={scale} />
       )}
       <div className="pointer-events-auto grid grid-cols-2 gap-3">
-        <TouchBtn label="E" onDown={() => act((e) => e.input.pulseInteract())} />
+        {eva ? (
+          // eva-v1: tap = interact (airlock), hold = repair
+          <TouchBtn
+            label="E"
+            hold
+            onDown={() => act((e) => e.input.pulseInteract())}
+            onHold={(v) => act((e) => e.input.setTouch({ interactHold: v }))}
+          />
+        ) : (
+          <TouchBtn label="E" onDown={() => act((e) => e.input.pulseInteract())} />
+        )}
         <TouchBtn label="C" onDown={() => act((e) => e.input.pulseCam())} />
-        {flight ? (
+        {eva ? (
+          <>
+            <TouchBtn label="UP" hold onHold={(v) => act((e) => e.input.setTouch({ rcsUp: v }))} />
+            <TouchBtn label="DOWN" hold onHold={(v) => act((e) => e.input.setTouch({ rcsDown: v }))} />
+          </>
+        ) : flight ? (
           <>
             <TouchBtn label="THR+" hold onHold={(v) => act((e) => e.input.setTouch({ y: v ? 1 : 0 }))} />
             <TouchBtn label="THR-" hold onHold={(v) => act((e) => e.input.setTouch({ y: v ? -1 : 0 }))} />

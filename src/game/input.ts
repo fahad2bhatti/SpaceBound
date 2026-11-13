@@ -7,6 +7,8 @@ export type TouchState = {
   rcsDown: boolean;
   pitchUp: boolean;
   pitchDown: boolean;
+  /** eva-v1: the on-screen E button is being held (hold-to-repair). */
+  interactHold: boolean;
 };
 
 export class Input {
@@ -83,6 +85,7 @@ export class Input {
     rcsDown: false,
     pitchUp: false,
     pitchDown: false,
+      interactHold: false,
   };
   interactPulse = false;
   launchPulse = false;
@@ -206,6 +209,7 @@ export class Input {
       rcsDown: false,
       pitchUp: false,
       pitchDown: false,
+      interactHold: false,
     };
     this.resetLook();
   }

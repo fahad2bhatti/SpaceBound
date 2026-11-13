@@ -52,7 +52,8 @@ export type Phase =
   | "surface"
   | "surfaceCockpit"
   | "surfaceCountdown"
-  | "surfaceLiftoff";
+  | "surfaceLiftoff"
+  | "eva";
 export type CamMode = "chase" | "cockpit";
 
 export type Modal = { title: string; text: string; reward: number; kicker?: string };
@@ -105,6 +106,17 @@ export type Snap = {
   atmo: { name: string; label: string; depth: number; tint: string } | null;
   /** contracts-v1 */
   contracts: ContractsSnap;
+  /** eva-v1: spacewalk readouts, null outside EVA. */
+  eva: {
+    range: number;
+    drain: number;
+    safe: number;
+    max: number;
+    arrow: number;
+    holding: boolean;
+    hold: number;
+    atAirlock: boolean;
+  } | null;
   zones: {
     found: number;
     total: number;
@@ -117,6 +129,18 @@ type LandingZone = { i: number; z: ZoneDef; arc: number; inside: boolean };
 
 const PAD = new THREE.Vector3(0.2, 0.38, 0.9).normalize();
 const FLIGHT_SCALE = 0.22;
+// eva-v1: Vesper Station sits on the Earth-Moon line, so it is on the way to the Moon (range rating 80, see catalog DESTS).
+const STATION_DIST = 75;
+const EVA_SCALE = 0.16; // astronaut size in flight-scene units (the shuttle is scaled by FLIGHT_SCALE)
+const EVA_START_RANGE = 9; // su from the station centre
+const EVA_START_SPEED = 8;
+const EVA_AIRLOCK = 2.2; // su from the shuttle
+const EVA_RANGE_SAFE = 10; // oxygen drains 1x inside this distance from the shuttle ...
+const EVA_RANGE_MAX = 20; // ... and 3x from here out (soft limit, no hard stop)
+const EVA_REACH = 0.9; // hold-to-repair reach
+const EVA_ACCEL = 3.2;
+const EVA_MAX = 2.4;
+const DEBRIS_PENALTY = 8; // seconds of oxygen
 // Landing assist: active below this altitude while descending (see applyLandingAssist).
 const ASSIST_ALT = 45; // easy-flight-v1: assist ab pehle shuru hota hai
 const ASSIST_DESC_MIN = 1.8;
@@ -471,6 +495,7 @@ export class Spacebound {
           : null,
       zones: this.zoneSnap(),
       contracts: this.contractsSnap(),
+      eva: this.evaSnap(),
     };
   }
 
@@ -595,7 +620,7 @@ export class Spacebound {
       this.notifyNow = true;
       return;
     }
-    if (this.save.started && (this.phase === "flight" || this.phase.startsWith("surface") || this.phase === "pad" || this.phase === "cockpit")) {
+    if (this.save.started && (this.phase === "flight" || this.phase === "eva" || this.phase.startsWith("surface") || this.phase === "pad" || this.phase === "cockpit")) {
       this.resumePlay();
       return;
     }
@@ -605,7 +630,7 @@ export class Spacebound {
   resumePlay(): void {
     this.screen = "play";
     this.input.exitLock();
-    if (this.phase === "flight") this.useScene(this.flightScene, "flight");
+    if (this.phase === "flight" || this.phase === "eva") this.useScene(this.flightScene, "flight");
     else if (this.phase.startsWith("surface")) this.useScene(this.surfaceScene ?? this.padScene, "surface");
     else this.useScene(this.padScene, "pad");
     this.notifyNow = true;
@@ -1009,7 +1034,7 @@ export class Spacebound {
     if ((e && !this.prevE) || pulses.interact) this.interact();
     this.prevE = e;
     const c = this.input.held("KeyC");
-    if ((c && !this.prevC) || pulses.cam) this.cycleCam();
+    if (((c && !this.prevC) || pulses.cam) && this.phase !== "eva") this.cycleCam();
     this.prevC = c;
     const v = this.input.held("KeyV");
     if (v && !this.prevV && this.phase === "flight") this.levelShip(false);
@@ -1066,6 +1091,14 @@ export class Spacebound {
     }
     if (this.phase === "cockpit" || this.phase === "surfaceCockpit") {
       this.exitHatch();
+      return;
+    }
+    if (this.phase === "flight") {
+      if (this.canStartEva()) this.startEva();
+      return;
+    }
+    if (this.phase === "eva") {
+      if (this.evaLock <= 0 && this.evaPos.distanceTo(this.flightPos) < EVA_AIRLOCK) this.endEva();
       return;
     }
     const spot = this.contractSpotNear();
@@ -1155,6 +1188,8 @@ export class Spacebound {
     else if (this.phase === "countdown" || this.phase === "surfaceCountdown") this.updateCountdown(dt);
     else if (this.phase === "liftoff" || this.phase === "surfaceLiftoff") this.updateLiftoff(dt);
     else if (this.phase === "flight") this.updateFlight(dt);
+    else if (this.phase === "eva") this.updateEva(dt);
+    if (this.phase === "flight" || this.phase === "eva") this.updateStationAlarm(dt);
     this.screenT += dt;
     if (this.screenT > 0.25 && this.camMode === "cockpit") {
       this.screenT = 0;
@@ -1285,6 +1320,259 @@ export class Spacebound {
     this.applyShake();
   }
 
+  // ---- eva-v1: spacewalk at Vesper Station ----------------------------------------------------------
+  // The shuttle is frozen while you are outside (updateFlight does not run), and the spacewalk has its own controls,
+  // so nothing you press out here can move the ship. Movement is velocity + damping (jetpack), not real physics.
+
+  private canStartEva(): boolean {
+    return this.phase === "flight" && this.flightPos.distanceTo(this.station) < EVA_START_RANGE && this.velLen() < EVA_START_SPEED;
+  }
+
+  private startEva(): void {
+    const rig = this.ensureFlightRig();
+    this.throttle = 0;
+    this.audio.setThrottle(0);
+    this.glow(rig, 0);
+    this.flightV.set(0, 0, 0);
+    this.phase = "eva";
+    this.camMode = "chase";
+    this.resetFlightControls();
+    const up = this.v2.set(0, 1, 0).applyQuaternion(rig.group.quaternion);
+    this.evaPos.copy(this.flightPos).addScaledVector(up, 1.6);
+    this.evaVel.set(0, 0, 0);
+    this.v1.copy(this.station).sub(this.evaPos);
+    this.evaYaw = Math.atan2(-this.v1.x, -this.v1.z);
+    this.evaLock = 0.8;
+    this.evaHitCd = 0;
+    this.evaDrain = 1;
+    this.astro.group.scale.setScalar(EVA_SCALE);
+    this.astro.group.visible = true;
+    this.lamp.intensity = 0;
+    this.flightScene.add(this.astro.group);
+    this.spawnDebris(this.contracts.hazards().debris);
+    this.toast("EVA: stay near the shuttle. Hold E on a glowing marker to repair.");
+    this.notifyNow = true;
+  }
+
+  private endEva(): void {
+    this.cleanupEva();
+    this.phase = "flight";
+    this.camMode = "chase";
+    this.resetFlightControls();
+    this.throttle = 0;
+    this.audio.setThrottle(0);
+    this.contracts.handle({ type: "evaEnded" });
+    this.toast("Airlock sealed. Back in the shuttle.");
+    this.persist(true);
+    this.notifyNow = true;
+  }
+
+  /** Put the astronaut back where the walker scenes expect it and drop the debris. Safe to call at any time. */
+  private cleanupEva(): void {
+    this.clearDebris();
+    this.evaVel.set(0, 0, 0);
+    this.evaHolding = false;
+    this.evaDrain = 1;
+    if (this.astro.group.parent === this.flightScene) {
+      this.flightScene.remove(this.astro.group);
+      this.padScene.add(this.astro.group);
+    }
+    this.astro.group.scale.setScalar(1);
+    this.astro.group.visible = false;
+    if (this.phase === "eva") this.phase = "flight";
+  }
+
+  private clearDebris(): void {
+    if (this.debrisGroup) {
+      this.debrisGroup.parent?.remove(this.debrisGroup);
+      this.disposeObject(this.debrisGroup);
+    }
+    this.debrisGroup = null;
+    this.debris = [];
+  }
+
+  private spawnDebris(n: number): void {
+    this.clearDebris();
+    if (n <= 0) return;
+    const g = new THREE.Group();
+    g.name = "evaDebris";
+    const mat = new THREE.MeshStandardMaterial({ color: 0x6b6f78, roughness: 0.9, flatShading: true });
+    for (let i = 0; i < n; i++) {
+      const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.2 + i * 0.03, 0), mat);
+      const a = (i / n) * Math.PI * 2 + 0.6;
+      mesh.position.set(this.station.x + Math.cos(a) * 4.5, this.station.y + (i - 1) * 1.6, this.station.z + Math.sin(a) * 4.5);
+      const vel = new THREE.Vector3(-Math.sin(a), (i % 2 ? 0.1 : -0.1), Math.cos(a)).multiplyScalar(0.55 + i * 0.12);
+      g.add(mesh);
+      this.debris.push({ mesh, vel, spin: new THREE.Vector3(0.6 + i * 0.3, 0.9, 0.4) });
+    }
+    this.debrisGroup = g;
+    this.flightScene.add(g);
+  }
+
+  /** The repair marker the astronaut is hovering at, if any. */
+  private evaSpotNear(): SpotView | null {
+    if (this.phase !== "eva" || !this.contracts.activeId) return null;
+    for (const sp of this.contracts.spots("eva", null)) {
+      this.v3.set(this.station.x + sp.x, this.station.y + (sp.y ?? 0), this.station.z + sp.z);
+      if (this.evaPos.distanceTo(this.v3) < EVA_REACH) return sp;
+    }
+    return null;
+  }
+
+  private updateEva(dt: number): void {
+    const inp = this.input;
+    const t = inp.touch;
+    this.evaLock = Math.max(0, this.evaLock - dt);
+    this.evaHitCd = Math.max(0, this.evaHitCd - dt);
+    let turn = 0;
+    let fwd = 0;
+    let vert = 0;
+    if (inp.steerOverride !== null) turn = inp.steerOverride;
+    else {
+      if (inp.held("KeyA") || inp.held("ArrowLeft")) turn += 1;
+      if (inp.held("KeyD") || inp.held("ArrowRight")) turn -= 1;
+    }
+    if (inp.held("KeyW") || inp.held("ArrowUp")) fwd += 1;
+    if (inp.held("KeyS") || inp.held("ArrowDown")) fwd -= 1;
+    if (inp.held("Space")) vert += 1;
+    if (inp.held("KeyX") || inp.held("ControlLeft")) vert -= 1;
+    turn += -t.x;
+    fwd += t.y;
+    if (t.rcsUp) vert += 1;
+    if (t.rcsDown) vert -= 1;
+    turn = THREE.MathUtils.clamp(turn, -1, 1);
+    fwd = THREE.MathUtils.clamp(fwd, -1, 1);
+    vert = THREE.MathUtils.clamp(vert, -1, 1);
+    if (inp.pointerLocked) this.evaYaw -= this.clockMouse.x * this.save.settings.sens;
+    this.evaYaw += turn * 2.2 * dt;
+    const fx = -Math.sin(this.evaYaw);
+    const fz = -Math.cos(this.evaYaw);
+    const boost = inp.held("ShiftLeft") || inp.held("ShiftRight") ? 1.6 : 1;
+    this.evaVel.x += fx * fwd * EVA_ACCEL * boost * dt;
+    this.evaVel.z += fz * fwd * EVA_ACCEL * boost * dt;
+    this.evaVel.y += vert * EVA_ACCEL * dt;
+    this.evaVel.multiplyScalar(Math.exp(-(fwd || vert ? 0.7 : 1.4) * dt));
+    const cap = EVA_MAX * boost;
+    if (this.evaVel.length() > cap) this.evaVel.setLength(cap);
+    this.evaPos.addScaledVector(this.evaVel, dt);
+
+    // solid station module (capsule along x) and shuttle (sphere): push the astronaut out, never through
+    const sx = this.evaPos.x - this.station.x;
+    const cx = THREE.MathUtils.clamp(sx, -2.5, 2.5);
+    this.v3.set(sx - cx, this.evaPos.y - this.station.y, this.evaPos.z - this.station.z);
+    const dm = this.v3.length();
+    if (dm < 1.05 && dm > 1e-4) {
+      this.evaPos.set(this.station.x + cx, this.station.y, this.station.z).addScaledVector(this.v3, 1.05 / dm);
+      this.evaVel.addScaledVector(this.v3, -this.evaVel.dot(this.v3) / (dm * dm));
+    }
+    this.v3.copy(this.evaPos).sub(this.flightPos);
+    const ds = this.v3.length();
+    if (ds < 0.55 && ds > 1e-4) this.evaPos.copy(this.flightPos).addScaledVector(this.v3, 0.55 / ds);
+
+    // distance from the shuttle: drain 1x -> 3x, soft limit only
+    const range = this.evaPos.distanceTo(this.flightPos);
+    this.evaDrain = 1 + 2 * THREE.MathUtils.clamp((range - EVA_RANGE_SAFE) / (EVA_RANGE_MAX - EVA_RANGE_SAFE), 0, 1);
+
+    // hold E (keyboard or the phone's E button) on a marker
+    const sp = this.evaSpotNear();
+    const holdE = inp.held("KeyE") || t.interactHold;
+    this.evaHolding = !!sp && holdE;
+    if (sp && holdE && this.contracts.hold(sp.key, dt)) {
+      this.evaHoldT -= dt;
+      if (this.evaHoldT <= 0) {
+        this.evaHoldT = 0.32;
+        this.audio.beep(520 + Math.random() * 120, 0.05, "triangle", 0.035);
+        haptic.tap();
+      }
+    } else this.evaHoldT = 0;
+
+    this.updateDebris(dt);
+
+    // astronaut model: upright, facing its heading, arms and legs trail a little when thrusting
+    const sway = Math.min(1, this.evaVel.length() / EVA_MAX) * 0.5;
+    this.astro.legL.rotation.x = sway;
+    this.astro.legR.rotation.x = sway * 0.7;
+    this.astro.armL.rotation.x = -sway * 0.4;
+    this.astro.armR.rotation.x = -sway * 0.4;
+    this.astro.group.position.set(this.evaPos.x, this.evaPos.y - 1.15 * EVA_SCALE, this.evaPos.z);
+    this.orientFlat(this.astro.group, fx, fz);
+    this.yaw = this.evaYaw;
+    this.speedAbs = this.evaVel.length();
+    this.updateEvaCam(dt);
+  }
+
+  private updateDebris(dt: number): void {
+    if (!this.debris.length) return;
+    const hit = this.evaHitCd <= 0;
+    for (const d of this.debris) {
+      d.mesh.position.addScaledVector(d.vel, dt);
+      d.mesh.rotation.x += d.spin.x * dt;
+      d.mesh.rotation.y += d.spin.y * dt;
+      this.v3.copy(d.mesh.position).sub(this.station);
+      if (this.v3.length() > 9) d.vel.addScaledVector(this.v3, -0.8 * dt / Math.max(1, this.v3.length()) * 6);
+      if (hit && d.mesh.position.distanceTo(this.evaPos) < 0.42) {
+        this.evaHitCd = 1.2;
+        this.v4.copy(this.evaPos).sub(d.mesh.position).normalize();
+        this.evaVel.addScaledVector(this.v4, 2);
+        this.contracts.drainOxygen(DEBRIS_PENALTY);
+        this.audio.alarm();
+        haptic.heavy();
+        this.toast(`Debris hit. -${DEBRIS_PENALTY} s of oxygen.`);
+        this.notifyNow = true;
+      }
+    }
+  }
+
+  private updateEvaCam(dt: number): void {
+    this.stepFreeCam(dt);
+    const L = this.look;
+    const R0 = Math.hypot(1.7, 0.55) * this.fcZoom;
+    const pa = Math.atan2(0.55, 1.7) + this.fcPitch;
+    const cp = Math.cos(pa);
+    const a = this.evaYaw - this.fcYaw;
+    this.v4.set(this.evaPos.x + Math.sin(a) * cp * R0, this.evaPos.y + Math.sin(pa) * R0, this.evaPos.z + Math.cos(a) * cp * R0);
+    const off = Math.abs(this.fcYaw) + Math.abs(this.fcPitch) + Math.abs(this.fcZoom - 1) > 0.02;
+    const rate = L.active || this.fcHold > 0 || off ? 12 : 6;
+    this.camera.position.lerp(this.v4, 1 - Math.exp(-rate * dt));
+    this.camera.lookAt(this.evaPos);
+  }
+
+  /** Station alarm: red blink while the contract timer or the oxygen is in its last 30 s (the same pulse the HUD uses). */
+  private updateStationAlarm(dt: number): void {
+    if (!this.stationAlarm || !this.stationAlarmMat) return;
+    this.alarmCheck -= dt;
+    if (this.alarmCheck <= 0) {
+      this.alarmCheck = 0.3;
+      const v = this.contracts.activeId ? this.contracts.activeView() : null;
+      this.alarmLow = !!v && !!((v.time && v.time.urgency.pulse) || (v.oxygen && v.oxygen.urgency.pulse));
+    }
+    this.alarmT += dt;
+    const on = this.alarmLow && Math.sin(this.alarmT * 9) > 0;
+    this.stationAlarm.intensity = on ? 6 : 0;
+    this.stationAlarmMat.color.setHex(on ? 0xff3322 : 0x4a0d0d);
+  }
+
+  private evaSnap(): Snap["eva"] {
+    if (this.phase !== "eva") return null;
+    const range = this.evaPos.distanceTo(this.flightPos);
+    const c = this.flightPos.clone().applyMatrix4(this.camera.matrixWorldInverse);
+    let hold = 0;
+    const sp = this.evaSpotNear();
+    const act = this.contracts.data.active;
+    const st = sp && act ? act.objectives[sp.key] : null;
+    if (st) hold = Math.min(1, st.value / Math.max(1, st.target));
+    return {
+      range,
+      drain: this.evaDrain,
+      safe: EVA_RANGE_SAFE,
+      max: EVA_RANGE_MAX,
+      arrow: Math.atan2(c.x, c.y),
+      holding: this.evaHolding,
+      hold,
+      atAirlock: range < EVA_AIRLOCK,
+    };
+  }
+
   private pushShip(rig: ShipRig): void {
     const dx = this.walker.x - rig.group.position.x;
     const dz = this.walker.z - rig.group.position.z;
@@ -1406,6 +1694,23 @@ export class Spacebound {
 
   private flightPos = new THREE.Vector3();
   private flightV = new THREE.Vector3();
+
+  // ---- eva-v1 (spacewalk) ----
+  private evaPos = new THREE.Vector3();
+  private evaVel = new THREE.Vector3();
+  private evaYaw = 0;
+  private evaDrain = 1;
+  private evaLock = 0;
+  private evaHitCd = 0;
+  private evaHoldT = 0;
+  private evaHolding = false;
+  private alarmT = 0;
+  private alarmLow = false;
+  private alarmCheck = 0;
+  private stationAlarm: THREE.PointLight | null = null;
+  private stationAlarmMat: THREE.MeshBasicMaterial | null = null;
+  private debrisGroup: THREE.Group | null = null;
+  private debris: { mesh: THREE.Mesh; vel: THREE.Vector3; spin: THREE.Vector3 }[] = [];
 
   /** Fresh camera and steering state for every flight start, so a relaunch never inherits the last flight's offset. */
   private resetFlightControls(): void {
@@ -1745,15 +2050,8 @@ export class Spacebound {
     this.notifyNow = true;
   }
 
-  private updateFlightCam(dt: number, rig: ShipRig): void {
-    if (this.camMode === "cockpit") {
-      this.placeCockpitCamera(rig, dt, FLIGHT_SCALE);
-      return;
-    }
-    this.forward(rig, this.v1);
-    const up = this.v2.set(0, 1, 0).applyQuaternion(rig.group.quaternion);
-    // free-cam-v1: drag/swipe = orbit the ship, pinch/wheel = zoom, release = glide back to the chase view (~0.6s).
-    // Pure camera work: it never touches steering, throttle or the ship.
+  /** free-cam-v1 input + auto-recenter. Shared by the flight camera and the EVA camera (Phase 1 free camera, not rebuilt). */
+  private stepFreeCam(dt: number): void {
     const set = this.save.settings;
     const L = this.look;
     const px = 0.0055 * (set.lookSens || 1);
@@ -1774,6 +2072,19 @@ export class Spacebound {
       this.fcPitch -= this.fcPitch * k;
       this.fcZoom += (1 - this.fcZoom) * k;
     }
+  }
+
+  private updateFlightCam(dt: number, rig: ShipRig): void {
+    if (this.camMode === "cockpit") {
+      this.placeCockpitCamera(rig, dt, FLIGHT_SCALE);
+      return;
+    }
+    this.forward(rig, this.v1);
+    const up = this.v2.set(0, 1, 0).applyQuaternion(rig.group.quaternion);
+    // free-cam-v1: drag/swipe = orbit the ship, pinch/wheel = zoom, release = glide back to the chase view (~0.6s).
+    // Pure camera work: it never touches steering, throttle or the ship.
+    this.stepFreeCam(dt);
+    const L = this.look;
     const R0 = Math.hypot(7.5, 2.1) * this.fcZoom;
     const pa = Math.atan2(2.1, 7.5) + this.fcPitch;
     const cp = Math.cos(pa);
@@ -2285,6 +2596,7 @@ export class Spacebound {
   }
 
   private enterPad(): void {
+    this.cleanupEva();
     this.phase = "pad";
     this.camMode = "chase";
     this.throttle = 0;
@@ -2548,14 +2860,7 @@ export class Spacebound {
         scene.add(ring);
       }
     }
-    const st = new THREE.Group();
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.8, 0.18, 8, 28), this.assets.mats.metal);
-    ring.rotation.x = Math.PI / 2;
-    st.add(ring);
-    st.add(new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 2.6, 10), this.assets.mats.white));
-    const panel = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.05, 0.7), this.assets.mats.solar);
-    panel.position.y = 0.4;
-    st.add(panel);
+    const st = this.buildStation();
     st.position.copy(this.station);
     scene.add(st);
     const beamMat = new THREE.MeshBasicMaterial({
@@ -2590,8 +2895,8 @@ export class Spacebound {
       const [x, y, z] = bodyOffset(id);
       this.bodyPos.set(id, new THREE.Vector3(x, y, z));
     }
-    this.v1.crossVectors(PAD, new THREE.Vector3(0, 1, 0)).normalize();
-    this.station.copy(this.v1).multiplyScalar(BODIES.earth.radius + 7.4);
+    // eva-v1: the station hangs on the Earth-Moon line, STATION_DIST su out, so you pass it on the way to the Moon.
+    this.station.copy(this.bodyPos.get("moon")!).normalize().multiplyScalar(STATION_DIST);
     this.beacons.set("earth", PAD.clone().multiplyScalar(BODIES.earth.radius));
     this.beacons.set("station", this.station.clone());
     for (const id of BODY_IDS) {
@@ -2609,6 +2914,45 @@ export class Spacebound {
       }
     }
     this.buildZoneNormals();
+  }
+
+  /** Vesper Station, all primitives: a cylinder module along x, two solar panels along +-z, a mast with a dish, an alarm lamp. */
+  private buildStation(): THREE.Group {
+    const g = new THREE.Group();
+    const m = this.assets.mats;
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 5, 14), m.white);
+    body.rotation.z = Math.PI / 2;
+    g.add(body);
+    for (const sx of [-1, 1]) {
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.96, 0.96, 0.25, 14), m.metal);
+      cap.rotation.z = Math.PI / 2;
+      cap.position.x = sx * 2.4;
+      g.add(cap);
+    }
+    for (const sz of [-1, 1]) {
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.4, 6), m.metal);
+      arm.rotation.x = Math.PI / 2;
+      arm.position.z = sz * 1.5;
+      g.add(arm);
+      const panel = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.06, 3.0), m.solar);
+      panel.position.z = sz * 3.2;
+      g.add(panel);
+    }
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.8, 6), m.metal);
+    mast.position.set(-1.8, 1.8, 0);
+    g.add(mast);
+    const dish = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), m.white);
+    dish.rotation.x = Math.PI;
+    dish.position.set(-1.8, 2.75, 0);
+    g.add(dish);
+    this.stationAlarmMat = new THREE.MeshBasicMaterial({ color: 0x4a0d0d });
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), this.stationAlarmMat);
+    lamp.position.set(2.4, 1.0, 0);
+    g.add(lamp);
+    this.stationAlarm = new THREE.PointLight(0xff2a1a, 0, 14);
+    this.stationAlarm.position.copy(lamp.position);
+    g.add(this.stationAlarm);
+    return g;
   }
 
   private mountMenuShip(): void {
@@ -2833,6 +3177,8 @@ export class Spacebound {
     p.phase = this.phase;
     p.flying = this.phase === "flight";
     p.onFoot = this.phase === "surface";
+    p.onEva = this.phase === "eva";
+    p.drainMult = this.phase === "eva" ? this.evaDrain : 1;
     p.speed = p.flying ? this.velLen() : 0;
     this.contracts.tick(dt, p);
   }
@@ -2861,7 +3207,7 @@ export class Spacebound {
   private syncContractMarkers(dt: number): void {
     let key = "";
     let spots: SpotView[] = [];
-    const scene = this.phase === "pad" ? "pad" : this.phase === "surface" ? "surface" : null;
+    const scene = this.phase === "pad" ? "pad" : this.phase === "surface" ? "surface" : this.phase === "eva" ? "eva" : null;
     if (scene && this.screen !== "menu") {
       spots = this.contracts.spots(scene, scene === "surface" ? this.surfaceBody : null);
       if (spots.length) key = `${this.activeScene.uuid}|${this.contracts.rev}`;
@@ -2898,6 +3244,20 @@ export class Spacebound {
     for (const sp of spots) {
       const pickup = sp.kind === "pickup";
       const crew = sp.icon === "crew";
+      if (sp.icon === "repair") {
+        // eva-v1: small glowing repair marker, positioned relative to the station (zero-g, so it has a height too)
+        const rm = new THREE.Group();
+        rm.position.set(this.station.x + sp.x, this.station.y + (sp.y ?? 0), this.station.z + sp.z);
+        rm.add(new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffb347 })));
+        const halo = new THREE.Mesh(
+          new THREE.TorusGeometry(0.4, 0.025, 6, 24),
+          new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.85 }),
+        );
+        halo.rotation.x = Math.PI / 2;
+        rm.add(halo);
+        g.add(rm);
+        continue;
+      }
       const color = crew ? 0x7dd3fc : pickup ? 0xffb347 : 0x5eead4;
       const y = this.phase === "surface" && this.terrain ? this.terrain.heightAt(sp.x, sp.z) : this.phase === "pad" ? 0.02 : 0;
       const m = new THREE.Group();
@@ -3002,6 +3362,7 @@ export class Spacebound {
       if (this.phase !== "pad") {
         this.fuel = Math.max(this.fuel, this.stats().fuel * 0.3);
         this.life = this.stats().life;
+        this.cleanupEva();
         this.resetFlightControls();
         this.enterPad();
       }
@@ -3019,6 +3380,12 @@ export class Spacebound {
     if (this.screen !== "play" || this.modalQ.length) return null;
     if (this.phase === "countdown" || this.phase === "surfaceCountdown") return "E  Abort countdown";
     if (this.phase === "cockpit" || this.phase === "surfaceCockpit") return "E  Exit hatch";
+    if (this.phase === "flight") return this.canStartEva() ? "E  Start EVA" : null;
+    if (this.phase === "eva") {
+      const sp = this.evaSpotNear();
+      if (sp) return `Hold E  ${sp.label}`;
+      return this.evaPos.distanceTo(this.flightPos) < EVA_AIRLOCK ? "E  Enter airlock" : null;
+    }
     const spot = this.contractSpotNear();
     if (spot) return `E  ${spot.label}`;
     if (this.phase === "pad" && this.padRig) {
@@ -3081,7 +3448,7 @@ export class Spacebound {
     this.parkFuel();
     const rig = this.flightRig;
     this.save.resume = {
-      view: this.phase === "flight" ? "flight" : this.phase.startsWith("surface") ? "surface" : "pad",
+      view: this.phase === "flight" || this.phase === "eva" ? "flight" : this.phase.startsWith("surface") ? "surface" : "pad",
       body: this.phase.startsWith("surface") ? this.surfaceBody : "earth",
       dest: this.save.destination,
       fuel: this.fuel,

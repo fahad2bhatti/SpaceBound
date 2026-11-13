@@ -361,8 +361,8 @@ export class ContractManager {
         return;
       }
     }
-    if (a.oxygenLeft !== null && w.onFoot) {
-      a.oxygenLeft -= dt;
+    if (a.oxygenLeft !== null && (w.onFoot || w.onEva)) {
+      a.oxygenLeft -= dt * (w.drainMult ?? 1);
       if (a.oxygenLeft <= 0) {
         a.oxygenLeft = 0;
         this.fail("oxygen");
@@ -399,7 +399,7 @@ export class ContractManager {
   }
 
   /** Interactable spots for the scene the player is in. `body` = surface body, or null on the pad. */
-  spots(scene: "pad" | "surface", body: BodyId | null): SpotView[] {
+  spots(scene: "pad" | "surface" | "eva", body: BodyId | null): SpotView[] {
     const def = this.activeDef();
     const a = this.slice.active;
     if (!def || !a || this.result) return [];
@@ -408,7 +408,7 @@ export class ContractManager {
       const info = getHandler(def.objectives[i]!.type)?.spot?.(this.hctx(def, a, i));
       if (!info || info.spot.scene !== scene) continue;
       if (scene === "surface" && info.spot.body && info.spot.body !== body) continue;
-      out.push({ key: def.objectives[i]!.id, x: info.spot.x, z: info.spot.z, label: info.spot.label, kind: info.kind, icon: info.icon });
+      out.push({ key: def.objectives[i]!.id, x: info.spot.x, z: info.spot.z, label: info.spot.label, kind: info.kind, icon: info.icon, y: info.spot.y });
     }
     return out;
   }
@@ -429,6 +429,41 @@ export class ContractManager {
       return true;
     }
     return false;
+  }
+
+  /** E held on a spot for `dt` seconds (hold-to-repair). Cheap: only bumps `rev` when the marker moves or the objective finishes. */
+  hold(key: string, dt: number): boolean {
+    const def = this.activeDef();
+    const a = this.slice.active;
+    if (!def || !a || this.result) return false;
+    for (const i of this.liveIdx(def, a)) {
+      if (def.objectives[i]!.id !== key) continue;
+      const h = getHandler(def.objectives[i]!.type);
+      if (!h?.hold) return false;
+      const c = this.hctx(def, a, i);
+      const was = c.state.done;
+      const before = h.spot?.(c)?.spot;
+      if (!h.hold(dt, c)) return false;
+      if (this.settle(def, a, i, was)) return true;
+      const after = h.spot?.(c)?.spot;
+      if (before && after && (before.x !== after.x || before.z !== after.z)) this.rev++;
+      return true;
+    }
+    return false;
+  }
+
+  /** World hazards of the active contract (engine spawns them). */
+  hazards(): { debris: number } {
+    return { debris: this.activeDef()?.hazards?.debris ?? 0 };
+  }
+
+  /** Take `seconds` of oxygen away at once (debris hit). Fails the contract if that empties the tank. */
+  drainOxygen(seconds: number): void {
+    const a = this.slice.active;
+    if (!a || a.oxygenLeft === null || this.result) return;
+    a.oxygenLeft = Math.max(0, a.oxygenLeft - seconds);
+    if (a.oxygenLeft <= 0) this.fail("oxygen");
+    else this.hooks.onChange?.();
   }
 
   /** Landing-zone ids the HUD should reveal for the current objectives. */

@@ -32,6 +32,13 @@ const dropPoint = (body: "moon" | "mars", label: string): Spot => ({ scene: "sur
 // Stranded crew stand in a row around this point, 9 m from the landed ship (same clear ground as dropPoint).
 const crewPoint = (body: "moon" | "mars"): Spot => ({ scene: "surface", body, x: -9, z: 0, label: "Rescue crew member" });
 
+// Spacewalk repair points, in station-local units (see buildStation in engine.ts: the module lies along x, panels along +-z).
+const evaPoint = (x: number, y: number, z: number, label: string): Spot => ({ scene: "eva", x, y, z, label });
+const SP_ANTENNA = (): Spot => evaPoint(-1.8, 1.4, 0, "Repair antenna relay");
+const SP_HULL = (): Spot => evaPoint(1.5, 0.1, 1.4, "Patch hull seam");
+const SP_PANEL = (): Spot => evaPoint(0.8, 0.6, 3.4, "Re-seat solar panel");
+const SP_UNDER = (): Spot => evaPoint(-0.4, -1.4, 0, "Replace coolant valve");
+
 // Moon route rating is 210, Mars 470 (catalog BODIES). Starter ship range is only 90, so the farther
 // contracts need a bigger ship: that is what "requirements.minRange" is for.
 export const CONTRACTS: ContractDef[] = [
@@ -194,6 +201,70 @@ export const CONTRACTS: ContractDef[] = [
     ],
     reward: { credits: 5200, xp: 380, crewBonus: { credits: 400, xp: 40 } },
     requirements: { minRange: 470 },
+  },
+  // ------------------------------------------------------------ EVA REPAIR (station sits on the Earth-Moon route, route rating 80)
+  {
+    id: "eva-quick-fix",
+    title: "Antenna Quick Fix",
+    description: "Vesper Station lost its antenna relay. Park close, suit up, fix it and come back inside.",
+    type: "eva-repair",
+    difficulty: "easy",
+    planet: "earth",
+    target: "Vesper Station",
+    timeLimit: 600,
+    oxygenLimit: 180,
+    objectives: [
+      { id: "station", type: "reachLocation", label: "Park next to Vesper Station", params: { dest: "station", radius: 9, maxSpeed: 8 } },
+      { id: "r1", type: "repairPoint", label: "Repair the antenna relay", params: { at: SP_ANTENNA(), seconds: 4, label: "Repair antenna relay" } },
+      { id: "back", type: "returnToShuttle", label: "Return to the shuttle airlock", params: {} },
+      { id: "home", type: "returnToEarth", label: "Land back on Earth", params: {} },
+    ],
+    reward: { credits: 1100, xp: 90 },
+    requirements: { minRange: 80 },
+  },
+  {
+    id: "eva-station-service",
+    title: "Station Service Call",
+    description: "Three faults on the outside of the station. The solar panel needs three bolts re-seated in order.",
+    type: "eva-repair",
+    difficulty: "normal",
+    planet: "earth",
+    target: "Vesper Station",
+    timeLimit: 720,
+    oxygenLimit: 170,
+    objectives: [
+      { id: "station", type: "reachLocation", label: "Park next to Vesper Station", params: { dest: "station", radius: 9, maxSpeed: 8 } },
+      { id: "r1", type: "repairPoint", label: "Repair the antenna relay", params: { at: SP_ANTENNA(), seconds: 4, label: "Repair antenna relay" } },
+      { id: "r2", type: "repairPoint", label: "Patch the hull seam", params: { at: SP_HULL(), seconds: 5, label: "Patch hull seam" } },
+      { id: "r3", type: "repairPoint", label: "Re-seat the solar panel (3 bolts)", params: { at: SP_PANEL(), seconds: 3, label: "Re-seat solar panel", bolts: 3 } },
+      { id: "back", type: "returnToShuttle", label: "Return to the shuttle airlock", params: {} },
+      { id: "home", type: "returnToEarth", label: "Land back on Earth", params: {} },
+    ],
+    reward: { credits: 2600, xp: 200 },
+    requirements: { minRange: 80 },
+  },
+  {
+    id: "eva-debris-storm",
+    title: "Debris Field Repair",
+    description: "A debris cloud shredded the station. Four repairs, loose debris drifting around, and very little air.",
+    type: "eva-repair",
+    difficulty: "hard",
+    planet: "earth",
+    target: "Vesper Station",
+    timeLimit: 780,
+    oxygenLimit: 200,
+    hazards: { debris: 3 },
+    objectives: [
+      { id: "station", type: "reachLocation", label: "Park next to Vesper Station", params: { dest: "station", radius: 9, maxSpeed: 8 } },
+      { id: "r1", type: "repairPoint", label: "Repair the antenna relay", params: { at: SP_ANTENNA(), seconds: 5, label: "Repair antenna relay" } },
+      { id: "r2", type: "repairPoint", label: "Patch the hull seam", params: { at: SP_HULL(), seconds: 6, label: "Patch hull seam" } },
+      { id: "r3", type: "repairPoint", label: "Re-seat the solar panel (3 bolts)", params: { at: SP_PANEL(), seconds: 4, label: "Re-seat solar panel", bolts: 3 } },
+      { id: "r4", type: "repairPoint", label: "Replace the coolant valve", params: { at: SP_UNDER(), seconds: 6, label: "Replace coolant valve" } },
+      { id: "back", type: "returnToShuttle", label: "Return to the shuttle airlock", params: {} },
+      { id: "home", type: "returnToEarth", label: "Land back on Earth", params: {} },
+    ],
+    reward: { credits: 5000, xp: 360 },
+    requirements: { minRange: 80 },
   },
 ];
 

@@ -6,10 +6,12 @@ export type Difficulty = "easy" | "normal" | "hard";
 
 /** Where an interactable spot lives. "pad" = spaceport (walker x/z). "surface" = x/z relative to the landed ship, which sits at 0,0. */
 export type Spot = {
-  scene: "pad" | "surface";
+  scene: "pad" | "surface" | "eva";
   /** Surface spots only: restrict to one body. Omit to allow any landable body. */
   body?: BodyId;
   x: number;
+  /** EVA spots only: zero-g, so height matters. x / y / z are relative to the station centre. */
+  y?: number;
   z: number;
   /** Prompt shown as "E  <label>" when the player stands on the spot. */
   label: string;
@@ -32,6 +34,10 @@ export interface ObjectiveParamsMap {
   surviveTime: { seconds: number; where?: "any" | "flight" | "surface" };
   /** Pick up stranded crew (1-3) one by one by pressing E on their marker. Each rescue adds 1 to inventory.crew. */
   rescueCrew: { at: Spot; count: number; label?: string };
+  /** EVA: hold E next to the glowing marker for `seconds`. `bolts` > 1 = that many holds in a row, each at its own marker. */
+  repairPoint: { at: Spot; seconds: number; label: string; bolts?: number };
+  /** EVA: get back into the shuttle airlock. */
+  returnToShuttle: Record<string, never>;
   /** Touch down on Earth. */
   returnToEarth: Record<string, never>;
 }
@@ -79,6 +85,8 @@ export type ContractDef = {
   /** "sequence" (default): one objective at a time, in order. "parallel": all at once, any order. */
   order?: "sequence" | "parallel";
   objectives: ObjectiveDef[];
+  /** Optional world hazards for this contract (EVA: floating debris near the station). */
+  hazards?: { debris?: number };
   reward: ContractReward;
   requirements?: Requirements;
   /** Hidden contracts never appear on the board until another contract lists them in reward.unlocks. */
@@ -91,6 +99,8 @@ export type ContractDef = {
 export interface ContractEventMap {
   landed: { body: BodyId; zone: string | null };
   crash: { body: BodyId };
+  /** The player stepped back into the shuttle airlock. */
+  evaEnded: Record<never, never>;
 }
 export type ContractEvent = { [K in keyof ContractEventMap]: { type: K } & ContractEventMap[K] }[keyof ContractEventMap];
 
@@ -99,6 +109,10 @@ export type WorldProbe = {
   phase: string;
   flying: boolean;
   onFoot: boolean;
+  /** Spacewalk (phase "eva"). Drains the same oxygen as onFoot. */
+  onEva?: boolean;
+  /** Oxygen drain multiplier (1 = normal). Grows with distance from the shuttle during EVA. */
+  drainMult?: number;
   speed: number;
   distToDest: (dest: DestId) => number;
 };
@@ -184,7 +198,7 @@ export type BoardCard = {
   completed: boolean;
 };
 
-export type SpotView = { key: string; x: number; z: number; label: string; kind: "pickup" | "drop"; icon?: "crew" };
+export type SpotView = { key: string; x: number; z: number; label: string; kind: "pickup" | "drop"; icon?: "crew" | "repair"; y?: number };
 
 /** What the manager needs from the game to judge eligibility. */
 export type ContractCtx = { range: number; ship: ShipId; campaignDone: readonly string[] };

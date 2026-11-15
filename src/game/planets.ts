@@ -80,7 +80,7 @@ export const PLANETS: Record<BodyId, PlanetCfg> = {
       { id: "mars-olympus", name: "Olympus Foot", kind: "bonus", arc: 15.5, az: 320, radius: 2.3, ...BONUS, reward: 900 },
     ],
   },
-  // Gas giants: atmosphere effects only, no surface, so no zones.
+  // Gas giants: cloud-deck landing anywhere (gas-landing-v1), no marked zones.
   jupiter: { boundary: 16, label: "Atmosphere", scanRange: 0, scanEvery: 4, tint: "#d2b48c", zones: [] },
   saturn: { boundary: 14, label: "Atmosphere", scanRange: 0, scanEvery: 4, tint: "#e6d3a3", zones: [] },
   uranus: { boundary: 12, label: "Atmosphere", scanRange: 0, scanEvery: 4, tint: "#9fd6d2", zones: [] },

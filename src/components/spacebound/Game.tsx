@@ -41,7 +41,9 @@ import { Spacebound, type Snap } from "@/game/engine";
 import { haptic } from "@/game/haptics";
 import { pickHint } from "@/game/hints";
 import { placeWaypoint } from "@/game/waypoint";
-import { ContractBoard, ContractHud, ContractResultView } from "./Contracts";
+import { ContractHud, ContractResultView } from "./Contracts";
+import { MissionsScreen } from "./MissionsScreen";
+import { SUN_GUIDE } from "@/game/guide";
 import { LandingPanel } from "./Landing";
 // phone-fix-map-v1
 import { App as CapApp } from "@capacitor/app";
@@ -179,7 +181,7 @@ export function Game() {
         )}
         {snap && snap.screen === "menu" && <Menu snap={snap} act={act} />}
         {snap && snap.screen === "garage" && <Garage snap={snap} act={act} />}
-        {snap && snap.screen === "missions" && <Missions snap={snap} act={act} />}
+        {snap && snap.screen === "missions" && <MissionsScreen snap={snap} act={act} />}
         {snap && snap.screen === "solar" && <Solar snap={snap} act={act} />}
         {snap && snap.screen === "settings" && <SettingsPanel snap={snap} act={act} />}
         {snap && snap.screen === "credits" && <Credits act={act} />}
@@ -479,64 +481,6 @@ function Stat({ label, value, icon, frac }: { label: string; value: string; icon
   );
 }
 
-function Missions({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => void }) {
-  const [tab, setTab] = useState<"contracts" | "campaign">("contracts");
-  return (
-    <div className="flex h-full">
-      <Panel cls="sb-panel-wide">
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-4xl uppercase">Missions</h2>
-          <button type="button" className="min-h-11 min-w-11 border border-line px-3" onClick={() => act((e) => e.back())}>
-            <X className="size-5" />
-          </button>
-        </div>
-        <div className="grid grid-cols-2 gap-2" role="tablist">
-          {(["contracts", "campaign"] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              role="tab"
-              aria-selected={tab === t}
-              className={"min-h-11 border px-3 font-display text-lg uppercase tracking-wide " + (tab === t ? "border-accent bg-accent text-bg" : "border-line text-fg hover:border-primary")}
-              onClick={() => setTab(t)}
-            >
-              {t === "contracts" ? "Contracts" : "Campaign"}
-            </button>
-          ))}
-        </div>
-        {tab === "contracts" && <ContractBoard snap={snap} act={act} />}
-        {tab === "campaign" && <p className="text-sm text-muted">Active route: {activeMission(snap.done)?.name ?? "Catalog complete"}.</p>}
-        {tab === "campaign" && <div className="sb-grid-2 grid gap-3">
-          {MISSIONS.map((m) => {
-            const state = missionState(snap.done, m.id);
-            return (
-              <article key={m.id} className="border border-line p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="font-display text-xl uppercase">{m.name}</h3>
-                  <span className={state === "done" ? "text-primary" : state === "active" ? "text-accent" : "text-muted"}>
-                    {state}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-muted">{m.brief}</p>
-                <p className="mt-2 text-sm text-fg">+{formatInt(m.reward)} CR</p>
-                {m.dest && state !== "locked" && (
-                  <button
-                    type="button"
-                    className="mt-2 min-h-11 w-full border border-line px-3 text-left font-display uppercase"
-                    onClick={() => act((e) => e.setDest(m.dest!))}
-                  >
-                    Plot {DESTS[m.dest].name}
-                  </button>
-                )}
-              </article>
-            );
-          })}
-        </div>}
-      </Panel>
-    </div>
-  );
-}
-
 function Solar({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => void }) {
   const focus = DESTS[snap.chartFocus];
   const stats = shipStats(snap.selected, snap.upgrades[snap.selected]);
@@ -544,7 +488,7 @@ function Solar({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
   const gate = gateShip(focus.route);
   return (
     <div className="flex h-full flex-col sm:flex-row-reverse">
-      <aside className="pointer-events-auto max-h-[62%] w-full overflow-y-auto bg-bg/90 p-4 backdrop-blur-md sm:max-h-full sm:max-w-md sm:border-l sm:border-line sm:p-6 sb-side">
+      <aside className="pointer-events-auto max-h-[62%] w-full overflow-y-auto bg-bg/90 p-4 backdrop-blur-md sm:max-h-full sm:max-w-md sm:border-l sm:border-line sm:p-6 sb-side sb-pane">
         <div className="flex items-center justify-between">
           <h2 className="font-display text-4xl uppercase">Solar chart</h2>
           <button type="button" className="min-h-11 min-w-11 border border-line px-3" onClick={() => act((e) => e.back())}>
@@ -554,6 +498,17 @@ function Solar({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
         <p className="sb-hide-short mt-2 text-sm text-muted">Drag to orbit the chart. Click a planet. The orrery is not to scale. Route ratings are.</p>
         <p className="mt-3 font-display text-sm tracking-widest text-primary">{SHIPS[snap.selected].name}</p>
         <p className="text-sm text-fg">Certified range {km(stats.range)}</p>
+        {snap.chartSun ? (
+          <div className="mt-3 border border-line p-3">
+            <h3 className="font-display text-3xl uppercase">{SUN_GUIDE.name}</h3>
+            <p className="mt-2 text-sm text-muted">{SUN_GUIDE.summary}</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted">
+              {SUN_GUIDE.lines.map((l) => (
+                <li key={l}>{l}</li>
+              ))}
+            </ul>
+          </div>
+        ) : (
         <div className="mt-3 border border-line p-3">
           <h3 className="font-display text-3xl uppercase">{focus.name}</h3>
           <p className="mt-2 text-sm text-muted">{focus.blurb}</p>
@@ -571,10 +526,19 @@ function Solar({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
             </Cmd>
           </div>
         </div>
+        )}
         <div className="sb-grid-2 mt-3 grid gap-2">
           {DEST_LIST.map((id) => (
             <DestRow key={id} id={id} snap={snap} act={act} />
           ))}
+          <button
+            type="button"
+            onClick={() => act((e) => e.focusSun())}
+            className={snap.chartSun ? "min-h-11 border border-primary px-3 py-2 text-left" : "min-h-11 border border-line px-3 py-2 text-left"}
+          >
+            <span className="font-display text-lg uppercase">Sun</span>
+            <span className="block text-xs text-muted">Star · not a destination</span>
+          </button>
         </div>
       </aside>
     </div>
@@ -615,8 +579,8 @@ function DestRow({
 function SettingsPanel({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => void }) {
   const s = snap.settings;
   return (
-    <div className="flex h-full">
-      <Panel cls="sb-panel-wide sb-settings">
+    <div className="flex h-full justify-end">
+      <Panel cls="sb-panel-wide sb-settings sb-pane">
         <div className="flex items-center justify-between">
           <h2 className="font-display text-4xl uppercase">Settings</h2>
           <button type="button" className="min-h-11 min-w-11 border border-line px-3" onClick={() => act((e) => e.back())}>

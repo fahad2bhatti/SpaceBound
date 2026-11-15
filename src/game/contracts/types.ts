@@ -214,6 +214,8 @@ export type ContractsSnap = {
   result: ContractResult | null;
   /** Only filled while the Missions screen is open. */
   board: BoardCard[];
+  /** missions-guide-v1: every visible contract, for the per-planet Missions screen. Only filled while that screen is open. */
+  all: BoardCard[];
   /** Why a contract cannot be accepted right now (null = fine). */
   acceptBlock: string | null;
   xp: number;

@@ -5,7 +5,10 @@ export type ShipId =
   | "advanced"
   | "heavy"
   | "elite"
-  | "ultimate";
+  | "ultimate"
+  | "pathfinder"
+  | "nebula"
+  | "galaxy";
 
 export type BodyId = "earth" | "moon" | "mars" | "jupiter" | "saturn" | "uranus" | "neptune";
 
@@ -184,6 +187,55 @@ export const SHIP_LIST: ShipDef[] = [
     burn: 3.4,
     unlock: "saturn-flyby",
     blurb: "Ring-habitat flagship. The only hull rated for Uranus and Neptune.",
+  },
+  // new-ships-v1: galaxy-travel class. Bohat mehnge, Neptune survey ke baad khulte hain.
+  {
+    id: "pathfinder",
+    name: "Helios Pathfinder",
+    category: "Interstellar Pathfinder",
+    price: 140000,
+    speed: 9.6,
+    fuel: 1500,
+    accel: 14.6,
+    crew: 10,
+    range: 7000,
+    life: 160 * 60,
+    cargo: 20,
+    burn: 3.6,
+    unlock: "neptune-survey",
+    blurb: "First hull built to leave the solar system. Twin gold rings, four-bell main drive.",
+  },
+  {
+    id: "nebula",
+    name: "Nebula Drifter",
+    category: "Deep Galaxy Cruiser",
+    price: 280000,
+    speed: 11.4,
+    fuel: 2200,
+    accel: 15.5,
+    crew: 14,
+    range: 14000,
+    life: 240 * 60,
+    cargo: 30,
+    burn: 3.8,
+    unlock: "neptune-survey",
+    blurb: "Manta-wing cruiser with a glowing warp core. Crosses the gaps between star clusters.",
+  },
+  {
+    id: "galaxy",
+    name: "Andromeda Ark",
+    category: "Galaxy-Class Ark",
+    price: 520000,
+    speed: 13.5,
+    fuel: 3200,
+    accel: 16.5,
+    crew: 24,
+    range: 30000,
+    life: 400 * 60,
+    cargo: 50,
+    burn: 4,
+    unlock: "neptune-survey",
+    blurb: "Triple-ring generation ship. The only hull rated for intergalactic crossings.",
   },
 ];
 
@@ -464,7 +516,7 @@ export const MISSIONS: MissionDef[] = [
   {
     id: "jupiter-flyby",
     name: "Jupiter Flyby",
-    brief: "Pass the cloud-deck beacon. There is no landing.",
+    brief: "Pass the cloud-deck beacon. You can also touch down on the cloud deck.",
     reward: 9000,
     requires: "mars-samples",
     unlocks: "elite",

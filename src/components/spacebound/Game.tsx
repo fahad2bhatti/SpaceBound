@@ -356,9 +356,11 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
   const stats = shipStats(snap.inspect, up);
   const unlocked = isShipUnlocked(snap.done, ship);
   const owned = snap.owned.includes(ship.id);
+  // garage-split-v1: ek taraf ship (3D, left/top half), dusri taraf uski saari details. Neeche ship chunne ki patti.
+  const frac = (v: number, f: (s: (typeof SHIP_LIST)[number]) => number): number => Math.min(1, v / Math.max(...SHIP_LIST.map(f)));
   return (
-    <div className="flex h-full flex-col sm:flex-row-reverse">
-      <aside className="pointer-events-auto flex max-h-[58%] w-full flex-col gap-3 overflow-y-auto bg-bg/90 p-4 backdrop-blur-md sm:max-h-full sm:max-w-md sm:border-l sm:border-line sm:p-6 sb-side">
+    <div className="sb-garage">
+      <aside className="sb-garage-side pointer-events-auto flex flex-col gap-3 overflow-y-auto bg-bg/90 p-4 backdrop-blur-md sm:p-6">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="font-display text-sm tracking-widest text-primary">{ship.category}</p>
@@ -370,16 +372,16 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
         </div>
         <p className="text-sm text-muted">{ship.blurb}</p>
         <p className="font-display text-lg text-primary">{formatInt(snap.credits)} CR</p>
-        <div className="sb-stats grid gap-3">
-<Stat label="Range" value={km(stats.range)} />
-        <Stat label="Max speed" value={mps(stats.speed)} />
-        <Stat label="Fuel" value={`${Math.round(stats.fuel)} units`} />
-        <Stat label="Thrust" value={stats.accel.toFixed(1)} />
-        <Stat label="Crew" value={String(ship.crew)} icon={<Users className="size-4" />} />
-        <Stat label="Cargo" value={String(ship.cargo)} />
-        <Stat label="Life support" value={formatClock(stats.life)} icon={<Timer className="size-4" />} />
-</div>
-        <p className="sb-hide-short text-xs text-muted">Drag to rotate. Scroll to zoom. Nav upgrades add 5% range per level and cannot skip a planet tier.</p>
+        <div className="sb-garage-stats">
+          <Stat label="Range" value={km(stats.range)} frac={frac(stats.range, (s) => s.range)} />
+          <Stat label="Max speed" value={mps(stats.speed)} frac={frac(stats.speed, (s) => s.speed)} />
+          <Stat label="Fuel" value={`${Math.round(stats.fuel)} units`} frac={frac(stats.fuel, (s) => s.fuel)} />
+          <Stat label="Thrust" value={stats.accel.toFixed(1)} frac={frac(stats.accel, (s) => s.accel)} />
+          <Stat label="Crew" value={String(ship.crew)} icon={<Users className="size-4" />} frac={frac(ship.crew, (s) => s.crew)} />
+          <Stat label="Cargo" value={String(ship.cargo)} frac={frac(ship.cargo, (s) => s.cargo)} />
+          <Stat label="Life support" value={formatClock(stats.life)} icon={<Timer className="size-4" />} frac={frac(stats.life, (s) => s.life)} />
+        </div>
+        <p className="sb-hide-short text-xs text-muted">Drag the ship to rotate. Scroll to zoom. Nav upgrades add 5% range per level.</p>
         {owned ? (
           <Cmd tone="accent" onClick={() => act((e) => e.selectShip(ship.id))}>
             {snap.selected === ship.id ? "On the pad" : "Select ship"} <Rocket className="size-5" />
@@ -403,26 +405,27 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
             <UpgradeRow slot="nav" label="Navigation" level={up.nav} ship={ship.id} credits={snap.credits} act={act} />
           </div>
         )}
-        <div className="sb-grid-2 grid gap-2">
+      </aside>
+      <div className="sb-garage-view">
+        <div className="sb-garage-strip pointer-events-auto">
           {SHIP_LIST.map((s) => (
             <button
               key={s.id}
               type="button"
               onClick={() => act((e) => e.setInspect(s.id))}
               className={
-                s.id === snap.inspect
-                  ? "min-h-11 border border-primary px-3 py-2 text-left"
-                  : "min-h-11 border border-line px-3 py-2 text-left"
+                "shrink-0 bg-bg/80 px-3 py-2 text-left backdrop-blur-md " +
+                (s.id === snap.inspect ? "border border-primary" : "border border-line")
               }
             >
-              <span className="block font-display text-lg uppercase">{s.name}</span>
-              <span className="text-xs text-muted">
-                {s.category} · {isShipUnlocked(snap.done, s) ? (snap.owned.includes(s.id) ? "Owned" : `${formatInt(s.price)} CR`) : "Locked"} · {km(s.range)}
+              <span className="block font-display text-lg uppercase leading-tight">{s.name}</span>
+              <span className="block text-xs text-muted">
+                {isShipUnlocked(snap.done, s) ? (snap.owned.includes(s.id) ? "Owned" : `${formatInt(s.price)} CR`) : "Locked"} · {km(s.range)}
               </span>
             </button>
           ))}
         </div>
-      </aside>
+      </div>
     </div>
   );
 }
@@ -457,14 +460,21 @@ function UpgradeRow({
   );
 }
 
-function Stat({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
+function Stat({ label, value, icon, frac }: { label: string; value: string; icon?: React.ReactNode; frac?: number }) {
   return (
-    <div className="flex items-center justify-between border-b border-line py-1 text-sm">
-      <span className="flex items-center gap-2 text-muted">
-        {icon}
-        {label}
-      </span>
-      <span className="font-display text-lg text-fg">{value}</span>
+    <div className="border-b border-line py-1 text-sm">
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-2 text-muted">
+          {icon}
+          {label}
+        </span>
+        <span className="font-display text-lg text-fg">{value}</span>
+      </div>
+      {frac !== undefined && (
+        <div className="mt-0.5 h-0.5 w-full bg-line">
+          <div className="h-full bg-primary" style={{ width: `${Math.round(frac * 100)}%` }} />
+        </div>
+      )}
     </div>
   );
 }

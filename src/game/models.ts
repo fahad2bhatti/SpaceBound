@@ -295,6 +295,98 @@ export function buildShip(id: ShipId, a: Assets): ShipRig {
     return finish(g, a, new THREE.Vector3(0.6, 0, 0.8), new THREE.Vector3(0, 0.18, 1.3), new THREE.Vector3(0, 0.1, 3.2), new THREE.Vector3(1.2, 0.7, 3.2), 1.9);
   }
 
+  // ---- new-ships-v1: galaxy-travel class ----
+  if (id === "pathfinder") {
+    const fuse = new THREE.CapsuleGeometry(0.5, 5.2, 4, 14);
+    fuse.rotateX(Math.PI / 2);
+    g.add(hullMesh(fuse, m.white));
+    const nose = new THREE.ConeGeometry(0.5, 1.8, 14);
+    nose.rotateX(Math.PI / 2);
+    nose.translate(0, 0, 3.5);
+    g.add(hullMesh(nose, m.dark));
+    g.add(hullMesh(new THREE.SphereGeometry(0.24, 12, 10), m.glass, 0, 0.3, 2.2));
+    for (const zc of [-0.6, 1.0]) {
+      const ring = hullMesh(new THREE.TorusGeometry(1.0, 0.12, 10, 28), m.gold, 0, 0, zc);
+      ring.userData.spin = true;
+      g.add(ring);
+    }
+    for (const side of [-1, 1]) {
+      g.add(hullMesh(new THREE.BoxGeometry(2.2, 0.05, 0.9), m.solar, side * 1.5, 0.1, -0.4));
+    }
+    for (const [x, y] of [[0.4, 0.4], [-0.4, 0.4], [0.4, -0.4], [-0.4, -0.4]] as const) {
+      const bell = new THREE.CylinderGeometry(0.17, 0.34, 0.6, 10);
+      bell.rotateX(Math.PI / 2);
+      g.add(hullMesh(bell, m.dark, x, y, -3.2));
+      const f = flameCone(m.flame);
+      f.position.set(x, y, -3.35);
+      g.add(f);
+    }
+    return finish(g, a, new THREE.Vector3(0.8, 0.2, 1.8), new THREE.Vector3(0, 0.22, 2.1), new THREE.Vector3(0, 0.1, 3.8), new THREE.Vector3(2.6, 1.0, 3.8), 2.3);
+  }
+
+  if (id === "nebula") {
+    const body = new THREE.SphereGeometry(1, 24, 16);
+    body.scale(1.0, 0.45, 2.6);
+    g.add(hullMesh(body, m.dark));
+    const nose = new THREE.ConeGeometry(0.45, 1.6, 12);
+    nose.rotateX(Math.PI / 2);
+    nose.translate(0, 0, 2.9);
+    g.add(hullMesh(nose, m.copper));
+    g.add(hullMesh(new THREE.SphereGeometry(0.26, 12, 10), m.glass, 0, 0.35, 1.8));
+    for (const side of [-1, 1]) {
+      const wing = new THREE.BoxGeometry(2.8, 0.07, 1.8);
+      const w = hullMesh(wing, m.white, side * 1.9, -0.05, -0.5);
+      w.rotation.z = side * -0.12;
+      g.add(w);
+      g.add(hullMesh(new THREE.BoxGeometry(0.1, 0.5, 0.8), m.orange, side * 3.2, 0.2, -1.1));
+    }
+    const core = hullMesh(new THREE.SphereGeometry(0.34, 14, 10), m.glass, 0, 0.1, -0.4);
+    core.userData.spin = true;
+    g.add(core);
+    const ring = hullMesh(new THREE.TorusGeometry(0.9, 0.1, 10, 28), m.gold, 0, 0, 0.5);
+    ring.userData.spin = true;
+    g.add(ring);
+    for (const x of [-1.2, -0.6, 0, 0.6, 1.2]) {
+      const bell = new THREE.CylinderGeometry(0.14, 0.28, 0.5, 8);
+      bell.rotateX(Math.PI / 2);
+      g.add(hullMesh(bell, m.dark, x, -0.05, -2.6));
+      const f = flameCone(m.flame);
+      f.scale.setScalar(0.75);
+      f.position.set(x, -0.05, -2.72);
+      g.add(f);
+    }
+    return finish(g, a, new THREE.Vector3(0.9, 0.1, 1.2), new THREE.Vector3(0, 0.25, 1.9), new THREE.Vector3(0, 0.1, 3.4), new THREE.Vector3(3.3, 0.8, 3.2), 2.0);
+  }
+
+  if (id === "galaxy") {
+    const spine = new THREE.CylinderGeometry(0.34, 0.34, 7.2, 12);
+    spine.rotateX(Math.PI / 2);
+    g.add(hullMesh(spine, m.white));
+    g.add(hullMesh(new THREE.SphereGeometry(0.75, 20, 14), m.white, 0, 0, 3.4));
+    g.add(hullMesh(new THREE.SphereGeometry(0.26, 12, 8), m.glass, 0, 0.22, 4.0));
+    for (const [r, zc, mat] of [[1.9, 1.8, m.gold], [1.45, 0.4, m.copper], [1.0, -1.0, m.gold]] as const) {
+      const ring = hullMesh(new THREE.TorusGeometry(r, 0.16, 10, 36), mat, 0, 0, zc);
+      ring.userData.spin = true;
+      g.add(ring);
+    }
+    for (const side of [-1, 1]) {
+      g.add(hullMesh(new THREE.BoxGeometry(2.4, 0.05, 1.1), m.solar, side * 1.6, 0.9, -2.0));
+      g.add(hullMesh(new THREE.BoxGeometry(2.4, 0.05, 1.1), m.solar, side * 1.6, -0.9, -2.0));
+    }
+    for (let k = 0; k < 6; k++) {
+      const ang = (k / 6) * Math.PI * 2;
+      const x = Math.cos(ang) * 0.7;
+      const y = Math.sin(ang) * 0.7;
+      const bell = new THREE.CylinderGeometry(0.18, 0.4, 0.7, 10);
+      bell.rotateX(Math.PI / 2);
+      g.add(hullMesh(bell, m.dark, x, y, -3.9));
+      const f = flameCone(m.flame);
+      f.position.set(x, y, -4.1);
+      g.add(f);
+    }
+    return finish(g, a, new THREE.Vector3(0.9, 0.3, 1.6), new THREE.Vector3(0, 0.2, 2.6), new THREE.Vector3(0, 0.1, 4.2), new THREE.Vector3(2.2, 2.2, 4.4), 2.4);
+  }
+
   const spine = new THREE.CylinderGeometry(0.28, 0.28, 5.5, 10);
   spine.rotateX(Math.PI / 2);
   g.add(hullMesh(spine, m.white));

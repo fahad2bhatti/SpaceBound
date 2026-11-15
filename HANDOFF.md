@@ -1,4 +1,4 @@
-# SpaceBound: Beyond Earth - handoff notes (written 2026-11-12)
+# SpaceBound: Beyond Earth - handoff notes (updated 2026-11-15)
 
 ## What this is
 A 3D browser space-shuttle simulator (Three.js) wrapped as an Android app with Capacitor.
@@ -86,6 +86,20 @@ Branch feature/eva (built on feature/rescue-eva). Contract content lives in `src
 - Save v3: `best` (stars + score per planet id and zone id) and `badges`; `sanitize()` is the migration (v1/v2 load with empty best). Mission board cards show best stars of their planet.
 - Share: `src/game/share.ts` (config: game name + placeholder link). Capacitor Share on the phone (needs `npm i` + `npx cap sync android` once), Web Share in browsers, clipboard fallback. Text only, no share-card image.
 - Tests: `npx tsx scripts/landing.test.mts` (stars, score, multiplier, best, migration, share text) and `npx tsx scripts/contracts.test.mts`.
+
+## Sun, gas landing, new ships (merged: PR #10-#12)
+- Sun (`buildSun`, `SUN_DIST` 3500, `SUN_RADIUS` 260): visual + hazard. `updateSunHazard()` drains life near it, solar wall stops you, overheat = auto-abort to Earth orbit.
+- Gas giants (Jupiter..Neptune) are landable on a cloud deck (`kind: "cloud"` terrain, no marked zones). `BODY_MULT` in landing.ts: 2 / 2.2 / 2.6 / 3.
+- Ships pathfinder / nebula / galaxy unlock with `neptune-survey` (garage uses a split layout).
+- Up/Down arrows pitch only (+-75 deg, no roll): `stabilizeFlight()`.
+
+## Missions screen + guides (missions-guide-v1, branch feature/missions-guide)
+- `src/game/guide.ts`: `guideFor(place)` = per-planet guide (getting there / landing / zones / on foot / dangers). Numbers come from catalog, planets and landing config. `placeOfMission()` groups campaign missions by planet (orbit and station count as Earth).
+- `src/components/spacebound/MissionsScreen.tsx` (replaces the old Missions panel in Game.tsx): one side has all details (guide, campaign, contracts), the other side is the planet strip. CSS: `.sb-ms*` in styles.css (same split idea as the garage).
+- Contracts: the planet screen lists every visible contract (`manager.allView()`, snap `contracts.all`) and `acceptContract` now uses `accept(id, { any: true })`, so any unlocked contract can be taken from its planet. The 3-slot board still exists in the save/manager but the screen no longer shows it.
+- New campaign side missions (end of MISSIONS, so the main chain and old saves are unchanged): jupiter / saturn / uranus / neptune `-landing` (require that planet's flyby or survey), paid from the landing code via `tryEvent(`${body}-landing`)`.
+- New contracts (data.ts): jupiter-cloud-survey, saturn-deck-survey (normal), uranus-ice-survey, neptune-deep-survey (hard). Land on the cloud deck, 30-45 s on foot, return to Earth.
+- Tests: `npx tsx scripts/missions.test.mts`. Not verified on a phone yet: layout on small landscape, long-trip timers (1500 / 2100 / 3000 / 3600 s), cloud-deck walk with surviveTime.
 
 ## Known issues / untested
 - `npx tsc --noEmit` shows old type errors (e.g. Input.override is private but used by the engine). Vite build ignores them.

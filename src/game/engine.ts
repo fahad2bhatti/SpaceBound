@@ -75,6 +75,7 @@ export type Snap = {
   upgrades: SaveData["upgrades"];
   destination: DestId;
   chartFocus: DestId;
+  chartSun: boolean;
   settings: Settings;
   confirmNew: boolean;
   confirmReset: boolean;
@@ -266,6 +267,10 @@ export class Spacebound {
   private solarDist = 36;
   private menuT = 0;
   private solarMeshes: THREE.Object3D[] = [];
+  // solar-sun-v1: chart mein Sun bhi chunna ja sakta hai (destination nahi, sirf info card)
+  private solarSun: THREE.Object3D | null = null;
+  private solarSunGroup: THREE.Object3D | null = null;
+  private chartSun = false;
   private focusRing: THREE.Mesh;
 
   private bodyPos = new Map<BodyId, THREE.Vector3>();
@@ -477,6 +482,7 @@ export class Spacebound {
       upgrades: this.save.upgrades,
       destination: this.save.destination,
       chartFocus: this.chartFocus,
+      chartSun: this.chartSun,
       settings: this.save.settings,
       confirmNew: this.confirmNew,
       confirmReset: this.confirmReset,
@@ -617,6 +623,7 @@ export class Spacebound {
       this.useScene(this.garageScene, "garage");
     } else if (screen === "solar") {
       this.chartFocus = this.save.destination;
+      this.chartSun = false;
       this.screen = "solar";
       this.useScene(this.solarScene, "solar");
     } else if (screen === "missions" || screen === "settings" || screen === "credits") {
@@ -804,6 +811,7 @@ export class Spacebound {
 
   setDest(id: DestId): void {
     this.audio.ui();
+    this.chartSun = false;
     const route = DESTS[id].route;
     const range = this.stats().range;
     if (range + 0.01 < route) {
@@ -822,7 +830,21 @@ export class Spacebound {
 
   focusChart(id: DestId): void {
     this.chartFocus = id;
+    this.chartSun = false;
     this.notifyNow = true;
+  }
+
+  /** solar-sun-v1: Sun ka info card kholo (Sun destination nahi hai, nav target nahi badalta). */
+  focusSun(): void {
+    this.chartSun = true;
+    this.audio.ui();
+    this.notifyNow = true;
+  }
+
+  /** side-panel-v2: landscape mein details panel screen ka 38% (max 30rem), CSS .sb-pane / .sb-garage-side jaisa formula. */
+  private sidePanelFrac(): number {
+    const w = this.renderer.domElement.clientWidth || 1;
+    return Math.min(0.38, (30 * 16) / w);
   }
 
   markHint(id: string): void {
@@ -2127,6 +2149,8 @@ export class Spacebound {
           this.tryEvent("lunar-landing");
         }
         if (body === "mars") this.tryEvent("mars-landing");
+        // missions-guide-v1: gas giant side mission (jupiter-landing ...)
+        if (def.gas) this.tryEvent(`${body}-landing`);
         // gas-landing-v1: cloud-deck touchdown on a gas giant
         if (def.gas) this.toast(`${def.name} cloud-deck touchdown. Egress when you're ready.`);
         this.life = this.stats().life;
@@ -2906,26 +2930,15 @@ export class Spacebound {
     scene.add(new THREE.AmbientLight(0xffffff, 0.35));
     const sunL = new THREE.PointLight(0xfff2d2, 4, 200);
     scene.add(sunL);
-    const sun = new THREE.Mesh(
-      new THREE.SphereGeometry(2.2, 24, 16),
-      new THREE.MeshBasicMaterial({ color: 0xffe2b0 }),
-    );
-    scene.add(sun);
-    const sunGlow = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: this.assets.puff,
-        color: 0xffb347,
-        opacity: 0.85,
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-    );
-    sunGlow.scale.setScalar(11);
-    scene.add(sunGlow);
+    // solar-sun-v1: flight scene wala hi Sun (texture + corona), chart mein chunne layak
+    const sunObj = buildSun(2.4, this.assets.puff);
+    scene.add(sunObj);
+    this.solarSunGroup = sunObj;
+    this.solarSun = sunObj.getObjectByName("sunCore") ?? null;
     const order: BodyId[] = ["earth", "moon", "mars", "jupiter", "saturn", "uranus", "neptune"];
     order.forEach((id, i) => {
-      const dist = i === 0 ? 0 : 8 + i * 4.4;
+      // solar-sun-v1: Earth pehle dist 0 pe tha, yani Sun ke andar chhupa hua. Ab Sun se bahar apni orbit mein.
+      const dist = i === 0 ? 7 : 8 + i * 4.4;
       const ang = i * 0.85;
       const radius = id === "earth" ? 1.15 : id === "jupiter" ? 1.7 : id === "saturn" ? 1.45 : 0.7;
       const mesh = new THREE.Mesh(
@@ -2936,7 +2949,7 @@ export class Spacebound {
       mesh.userData.dest = id === "earth" ? "earth" : id;
       scene.add(mesh);
       this.solarMeshes.push(mesh);
-      if (i > 0) {
+      {
         const pts: THREE.Vector3[] = [];
         for (let k = 0; k <= 96; k++) {
           const a = (k / 96) * Math.PI * 2;
@@ -3252,8 +3265,10 @@ export class Spacebound {
     // garage-split-v1: ship screen ke ek aadhe hisse ke beech mein (landscape: left half, portrait: upar wala half);
     // dusre half mein details panel hai.
     const viewH = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * this.garageDist;
-    if (this.camera.aspect >= 1) this.camera.translateX(viewH * this.camera.aspect * 0.25);
-    else this.camera.translateY(-viewH * 0.25);
+    // side-panel-v1: landscape mein panel screen ka 38% (max 30rem) hai, ship bacha hua hissa ke beech mein (CSS .sb-garage-side jaisa formula)
+    if (this.camera.aspect >= 1) {
+      this.camera.translateX(viewH * this.camera.aspect * (this.sidePanelFrac() / 2));
+    } else this.camera.translateY(-viewH * 0.25);
   }
 
   private animSolar(_dt: number, drag: { x: number; y: number }, wheel: number): void {
@@ -3267,13 +3282,25 @@ export class Spacebound {
       Math.cos(this.solarYaw) * this.solarDist * cp,
     );
     this.camera.lookAt(0, 0, 0);
-    const focus = this.solarMeshes.find((m) => m.userData.dest === this.chartFocus);
+    // side-panel-v2: landscape mein orrery bache hue hisse (panel ke bahar) ke beech mein
+    if (this.camera.aspect >= 1) {
+      const viewH = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * this.solarDist;
+      this.camera.translateX(viewH * this.camera.aspect * (this.sidePanelFrac() / 2));
+    }
+    const focus = this.chartSun ? this.solarSunGroup : this.solarMeshes.find((m) => m.userData.dest === this.chartFocus);
     if (focus) {
       this.focusRing.position.copy(focus.position);
+      this.focusRing.scale.setScalar(this.chartSun ? 3 : 1);
       this.focusRing.lookAt(this.camera.position);
     }
     if (!this.reduce) {
       for (const m of this.solarMeshes) m.rotation.y += 0.002;
+      const sg = this.solarSunGroup;
+      if (sg) {
+        const t = performance.now() * 0.001;
+        const corona = sg.userData.corona as { sprite: THREE.Sprite; base: number }[];
+        corona.forEach((c, i) => c.sprite.scale.setScalar(c.base * (1 + 0.035 * Math.sin(t * (0.8 + i * 0.5) + i))));
+      }
     }
   }
 
@@ -3282,11 +3309,16 @@ export class Spacebound {
     this.ndc.x = (click.x / rect.width) * 2 - 1;
     this.ndc.y = -(click.y / rect.height) * 2 + 1;
     this.ray.setFromCamera(this.ndc, this.camera);
-    const hits = this.ray.intersectObjects(this.solarMeshes, false);
+    const hits = this.ray.intersectObjects(this.solarSun ? [...this.solarMeshes, this.solarSun] : this.solarMeshes, false);
     const hit = hits[0];
+    if (hit && hit.object === this.solarSun) {
+      this.focusSun();
+      return;
+    }
     const dest = hit?.object.userData.dest as DestId | undefined;
     if (dest && dest in DESTS) {
       this.chartFocus = dest;
+      this.chartSun = false;
       this.audio.ui();
       this.notifyNow = true;
     }
@@ -3398,6 +3430,8 @@ export class Spacebound {
       active: this.contracts.activeView(),
       result: this.contracts.result,
       board: this.screen === "missions" ? this.contracts.boardView().map((c) => ({ ...c, bestStars: this.save.best[c.planet]?.stars ?? 0 })) : [],
+      // missions-guide-v1: har planet ka poora contract list (board se alag), sirf Missions screen mein
+      all: this.screen === "missions" ? this.contracts.allView().map((c) => ({ ...c, bestStars: this.save.best[c.planet]?.stars ?? 0 })) : [],
       acceptBlock: null,
       xp: this.contracts.data.xp,
     };
@@ -3528,7 +3562,8 @@ export class Spacebound {
   // ---- contracts API (called from the UI) ----
 
   acceptContract(id: string): void {
-    const err = this.contracts.accept(id);
+    // missions-guide-v1: planet screen se koi bhi unlocked contract le sakte hain (board ka rule yahan nahi)
+    const err = this.contracts.accept(id, { any: true });
     if (err) {
       this.toast(err);
       return;

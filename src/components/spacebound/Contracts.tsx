@@ -110,7 +110,7 @@ function Chip({ children, cls }: { children: React.ReactNode; cls?: string }) {
   return <span className={"inline-block border px-2 py-0.5 font-display text-xs uppercase leading-none tracking-widest " + (cls ?? "border-line text-muted")}>{children}</span>;
 }
 
-function Card({ c, act }: { c: BoardCard; act: Act }) {
+export function Card({ c, act }: { c: BoardCard; act: Act }) {
   const [confirm, setConfirm] = useState(false);
   const active = c.status === "active";
   return (

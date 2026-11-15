@@ -219,40 +219,49 @@ export class ContractManager {
     }
   }
 
+  private card(d: ContractDef): BoardCard {
+    const lockedReason = this.slice.active?.id === d.id ? null : this.unmet(d);
+    return {
+      id: d.id,
+      title: d.title,
+      description: d.description,
+      difficulty: d.difficulty,
+      planet: d.planet,
+      target: d.target ?? null,
+      reward: { credits: d.reward.credits, xp: d.reward.xp ?? 0 },
+      timeLimit: scaledLimit(d, d.timeLimit),
+      oxygenLimit: scaledLimit(d, d.oxygenLimit),
+      steps: d.objectives.map((o) => o.label),
+      status: this.slice.active?.id === d.id ? "active" : lockedReason ? "locked" : "available",
+      lockedReason,
+      completed: this.slice.completed.includes(d.id),
+    };
+  }
+
   boardView(): BoardCard[] {
     this.ensureBoard();
     const cards: BoardCard[] = [];
     for (const id of this.slice.board) {
       const d = this.def(id);
-      if (!d) continue;
-      const lockedReason = this.slice.active?.id === id ? null : this.unmet(d);
-      cards.push({
-        id: d.id,
-        title: d.title,
-        description: d.description,
-        difficulty: d.difficulty,
-        planet: d.planet,
-        target: d.target ?? null,
-        reward: { credits: d.reward.credits, xp: d.reward.xp ?? 0 },
-        timeLimit: scaledLimit(d, d.timeLimit),
-        oxygenLimit: scaledLimit(d, d.oxygenLimit),
-        steps: d.objectives.map((o) => o.label),
-        status: this.slice.active?.id === id ? "active" : lockedReason ? "locked" : "available",
-        lockedReason,
-        completed: this.slice.completed.includes(d.id),
-      });
+      if (d) cards.push(this.card(d));
     }
     return cards;
+  }
+
+  /** missions-guide-v1: every contract the player may see (hidden ones only after they are unlocked), in data order. */
+  allView(): BoardCard[] {
+    return this.defs.filter((d) => this.boardEligible(d)).map((d) => this.card(d));
   }
 
   // ---- lifecycle -----------------------------------------------------------------------------------
 
   /** Start a contract. Returns an error message, or null on success. `retry` skips the "must be on the board" rule. */
-  accept(id: string, opts?: { retry?: boolean }): string | null {
+  accept(id: string, opts?: { retry?: boolean; any?: boolean }): string | null {
     if (this.slice.active) return "Finish or abandon your current contract first.";
     const def = this.def(id);
     if (!def) return "Unknown contract.";
-    if (!opts?.retry && !this.slice.board.includes(id)) return "That contract is not on the board.";
+    if (!opts?.retry && !opts?.any && !this.slice.board.includes(id)) return "That contract is not on the board.";
+    if (!this.boardEligible(def)) return "That contract is not available yet.";
     const unmet = this.unmet(def);
     if (unmet) return unmet;
     const objectives: Record<string, ObjState> = {};

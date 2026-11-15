@@ -549,6 +549,43 @@ export const MISSIONS: MissionDef[] = [
     unlocks: null,
     dest: "neptune",
   },
+  // missions-guide-v1: cloud-deck landings. Side missions: list ke akhir mein, taake main chain / activeMission / purani saves na badlein.
+  {
+    id: "jupiter-landing",
+    name: "Jupiter Cloud-Deck Landing",
+    brief: "Log the Jupiter beacon, then ease down onto the cloud deck and touch down inside the limits.",
+    reward: 8000,
+    requires: "jupiter-flyby",
+    unlocks: null,
+    dest: "jupiter",
+  },
+  {
+    id: "saturn-landing",
+    name: "Saturn Cloud-Deck Landing",
+    brief: "Log the Saturn beacon, then land gently on the calm cloud-deck pad.",
+    reward: 10000,
+    requires: "saturn-flyby",
+    unlocks: null,
+    dest: "saturn",
+  },
+  {
+    id: "uranus-landing",
+    name: "Uranus Ice-Deck Landing",
+    brief: "Log the Uranus beacon, then touch down on the frozen cloud deck.",
+    reward: 12000,
+    requires: "uranus-survey",
+    unlocks: null,
+    dest: "uranus",
+  },
+  {
+    id: "neptune-landing",
+    name: "Neptune Deep-Deck Landing",
+    brief: "Log the Neptune beacon, then land on the far cloud deck. The farthest touchdown in the catalog.",
+    reward: 15000,
+    requires: "neptune-survey",
+    unlocks: null,
+    dest: "neptune",
+  },
 ];
 
 export const NAV_BONUS = 0.05;

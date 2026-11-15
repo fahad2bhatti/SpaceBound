@@ -495,6 +495,67 @@ export function buildStars(count: number, inner: number, outer: number): THREE.P
   return new THREE.Points(geo, mat);
 }
 
+
+/** sun-v1: surface texture (granulation blotches) painted once on a canvas. */
+function sunTexture(): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = 512;
+  c.height = 256;
+  const ctx = c.getContext("2d");
+  if (!ctx) throw new Error("canvas unsupported");
+  ctx.fillStyle = "#ffcf6e";
+  ctx.fillRect(0, 0, 512, 256);
+  for (let i = 0; i < 700; i++) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 256;
+    const r = 6 + Math.random() * 22;
+    const hot = Math.random() < 0.5;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, hot ? "rgba(255,246,214,0.55)" : "rgba(224,110,20,0.45)");
+    g.addColorStop(1, "rgba(255,200,100,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** sun-v1: glowing Sun = textured core + two additive corona sprites. `puff` is the shared radial-gradient texture. */
+export function buildSun(radius: number, puff: THREE.Texture): THREE.Group {
+  const g = new THREE.Group();
+  g.name = "sun";
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(radius, 48, 32),
+    new THREE.MeshBasicMaterial({ map: sunTexture(), color: 0xffffff, toneMapped: false }),
+  );
+  core.name = "sunCore";
+  g.add(core);
+  const corona: { sprite: THREE.Sprite; base: number }[] = [];
+  for (const [k, color, opacity] of [
+    [5, 0xffb347, 0.9],
+    [11, 0xff7a1a, 0.35],
+  ] as const) {
+    const sprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: puff,
+        color,
+        opacity,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      }),
+    );
+    const base = radius * k;
+    sprite.scale.setScalar(base);
+    g.add(sprite);
+    corona.push({ sprite, base });
+  }
+  g.userData.corona = corona;
+  return g;
+}
+
 export type Terrain = {
   group: THREE.Group;
   heightAt: (x: number, z: number) => number;

@@ -152,6 +152,8 @@ const ASSIST_DRIFT_MIN = 2.2;
 const FREE_LAND = { maxDescent: 6, maxDrift: 4.8 };
 const BODY_IDS: BodyId[] = ["earth", "moon", "mars", "jupiter", "saturn", "uranus", "neptune"];
 // upright-turn-v1: upright rocket = nose up (rotate -90deg about X); gravity turn tilts it about the WORLD X axis.
+// arrow-pitch-v1: ship ab kabhi ulti nahi hoti. Up/Down arrow pitch is limit tak hi jata hai.
+const FLIGHT_PITCH_LIMIT = THREE.MathUtils.degToRad(75);
 const UPRIGHT_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
 const WORLD_X = new THREE.Vector3(1, 0, 0);
 
@@ -270,6 +272,12 @@ export class Spacebound {
   private ox = 100;
   private throttle = 0;
   private bank = 0;
+  private sUp = new THREE.Vector3();
+  private sFwd = new THREE.Vector3();
+  private sSide = new THREE.Vector3();
+  private sHead = new THREE.Vector3();
+  private sQ = new THREE.Quaternion();
+  private sRoll = new THREE.Quaternion();
   private count = 0;
   private lastBeep = 99;
   private liftY = 0;
@@ -1777,13 +1785,14 @@ export class Spacebound {
     this.steerSm += (steer - this.steerSm) * (Math.abs(steer) > Math.abs(this.steerSm) ? kIn : kOut);
     this.pitchSm += (pitch - this.pitchSm) * (Math.abs(pitch) > Math.abs(this.pitchSm) ? kIn : kOut);
     const prec = THREE.MathUtils.clamp(0.55 + altE / 60, 0.55, 1);
-    rig.group.rotateY(this.steerSm * 0.95 * prec * dt);
+    // arrow-pitch-v1: yaw ab "upar" (reference up) ke gird hota hai, ship ke apne Y ke gird nahi, to pitch ke baad turn ajeeb nahi hota.
+    const refUp = this.referenceUp(this.sUp);
+    rig.group.rotateOnWorldAxis(refUp, this.steerSm * 0.95 * prec * dt);
     // rotateX(+) swings the nose down, so ArrowUp (+pitch) uses rotateX(-).
     rig.group.rotateX(-this.pitchSm * 0.7 * prec * dt);
     const targetBank = -this.steerSm * 0.45; // rotateZ(+) banks right, so a left turn needs a negative bank
-    const bankDelta = (targetBank - this.bank) * Math.min(1, dt * 4);
-    this.bank += bankDelta;
-    rig.group.rotateZ(bankDelta);
+    this.bank += (targetBank - this.bank) * Math.min(1, dt * 4);
+    this.stabilizeFlight(rig, refUp, dt);
 
     if (this.input.held("KeyW") || (this.input.override === null && this.input.touch.y > 0.3))
       this.throttle = Math.min(1, this.throttle + dt * 0.9);
@@ -1854,6 +1863,35 @@ export class Spacebound {
     this.updateBeaconScales();
     if (!this.reduce && this.sinceLaunch < 6) this.trauma = Math.max(this.trauma, 0.25);
     this.applyShake();
+  }
+
+  /**
+   * arrow-pitch-v1: pitch ko +-FLIGHT_PITCH_LIMIT tak rokta hai, roll hata deta hai (ship ulti nahi hoti),
+   * phir sirf dikhane ke liye bank wapas lagata hai.
+   */
+  private stabilizeFlight(rig: ShipRig, up: THREE.Vector3, dt: number): void {
+    const f = this.forward(rig, this.sFwd);
+    const s = THREE.MathUtils.clamp(f.dot(up), -1, 1);
+    const pitch = Math.asin(s);
+    const target = THREE.MathUtils.clamp(pitch, -FLIGHT_PITCH_LIMIT, FLIGHT_PITCH_LIMIT);
+    const newPitch = pitch + (target - pitch) * Math.min(1, dt * 30);
+    const head = this.sHead.copy(f).addScaledVector(up, -s);
+    if (head.lengthSq() < 1e-6) {
+      // bilkul seedha upar/neeche: heading ship ke apne "up" se nikalo
+      head.set(0, 1, 0).applyQuaternion(rig.group.quaternion);
+      head.addScaledVector(up, -head.dot(up));
+      if (s > 0) head.negate();
+      if (head.lengthSq() < 1e-6) head.set(1, 0, 0).applyQuaternion(rig.group.quaternion);
+    }
+    head.normalize();
+    const fz = f.copy(up).multiplyScalar(Math.sin(newPitch)).addScaledVector(head, Math.cos(newPitch)).normalize();
+    const x = this.sSide.crossVectors(up, fz);
+    if (x.lengthSq() < 1e-8) x.set(1, 0, 0);
+    x.normalize();
+    const y = head.crossVectors(fz, x).normalize();
+    this.basis.makeBasis(x, y, fz);
+    rig.group.quaternion.setFromRotationMatrix(this.basis);
+    rig.group.rotateZ(this.bank);
   }
 
   private applyLandingAssist(dt: number, body: BodyId, alt: number): void {
@@ -2161,7 +2199,7 @@ export class Spacebound {
     const cp = Math.cos(pa);
     this.v4
       .set(Math.sin(this.fcYaw) * cp * R0, Math.sin(pa) * R0, -Math.cos(this.fcYaw) * cp * R0)
-      .applyQuaternion(rig.group.quaternion)
+      .applyQuaternion(this.sQ.copy(rig.group.quaternion).multiply(this.sRoll.set(0, 0, Math.sin(-this.bank / 2), Math.cos(-this.bank / 2))))
       .add(this.flightPos);
     // keep the camera out of the ground / planet
     const fb = this.dominant();
@@ -2175,7 +2213,10 @@ export class Spacebound {
     this.camera.position.lerp(this.v4, 1 - Math.exp(-rate * dt));
     const kf = THREE.MathUtils.clamp(Math.abs(this.fcYaw) / 0.7 + Math.abs(this.fcPitch) / 0.5, 0, 1);
     this.v5.copy(this.flightPos).addScaledVector(this.v1, 3 * (1 - kf));
+    // arrow-pitch-v1: camera ka horizon hamesha "upar" rahe; lookAt ke baad default up wapas, taake baaki modes na bigdein.
+    this.camera.up.copy(this.referenceUp(this.sUp));
     this.camera.lookAt(this.v5);
+    this.camera.up.set(0, 1, 0);
   }
 
   private placeCockpitCamera(rig: ShipRig, dt: number, scale: number): void {

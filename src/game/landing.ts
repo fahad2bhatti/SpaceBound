@@ -23,7 +23,7 @@ export const LANDING_CFG = {
 } as const;
 
 const BASE: Record<LandingGrade, number> = { S: 200, A: 120, B: 50 };
-const BODY_MULT: Partial<Record<string, number>> = { earth: 0.25, mars: 1.5 };
+const BODY_MULT: Partial<Record<string, number>> = { earth: 0.25, mars: 1.5, jupiter: 2, saturn: 2.2, uranus: 2.6, neptune: 3 };
 
 /**
  * Grade a successful touchdown. `descent` and `drift` are the vertical and sideways speed at contact,

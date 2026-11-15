@@ -580,16 +580,18 @@ function makeHeight(craters: Crater[], amp: number) {
   };
 }
 
-export function buildTerrain(body: "moon" | "mars", a: Assets): Terrain {
+export function buildTerrain(body: "moon" | "mars" | "cloud", a: Assets, cloudId?: BodyId): Terrain {
   const moon = body === "moon";
-  const craters: Crater[] = [
+  const cloud = body === "cloud";
+  const craters: Crater[] = cloud ? [] : [
     { x: 12, z: 8, r: 7, depth: moon ? 1.3 : 0.8 },
     { x: -16, z: 14, r: 9, depth: moon ? 1.6 : 0.9 },
     { x: 6, z: -18, r: 5, depth: 0.7 },
     { x: -8, z: -10, r: 4, depth: 0.5 },
     { x: 22, z: -6, r: 6, depth: 0.9 },
   ];
-  const heightAt = makeHeight(craters, moon ? 0.35 : 0.55);
+  // gas-landing-v1: cloud deck = narm, halki lehron wali sat'h (koi crater / patthar nahi)
+  const heightAt = makeHeight(craters, cloud ? 0.22 : moon ? 0.35 : 0.55);
   const geo = new THREE.PlaneGeometry(120, 120, 70, 70);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
@@ -601,8 +603,8 @@ export function buildTerrain(body: "moon" | "mars", a: Assets): Terrain {
   }
   geo.computeVertexNormals();
   const mat = new THREE.MeshStandardMaterial({
-    map: moon ? a.moon : a.mars,
-    roughness: 0.92,
+    map: cloud ? bodyTexture(a, cloudId ?? "jupiter") : moon ? a.moon : a.mars,
+    roughness: cloud ? 1 : 0.92,
     metalness: 0.04,
     color: moon ? 0xb7b8bc : 0xffffff,
   });
@@ -631,6 +633,8 @@ export function buildTerrain(body: "moon" | "mars", a: Assets): Terrain {
   }
   inst.castShadow = true;
   inst.receiveShadow = true;
+  inst.visible = !cloud;
+  if (cloud) rocks.length = 0;
   group.add(inst);
   const samples: THREE.Object3D[] = [];
   const sampleMat = new THREE.MeshStandardMaterial({
@@ -660,7 +664,7 @@ export function buildTerrain(body: "moon" | "mars", a: Assets): Terrain {
   flag.add(cloth);
   flag.children[0]!.position.y = 0.7;
   group.add(flag);
-  if (!moon) {
+  if (!moon && !cloud) {
     group.add(skyDome("dawn"));
   }
   return { group, heightAt, samples, rocks };

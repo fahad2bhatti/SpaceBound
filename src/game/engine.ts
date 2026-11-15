@@ -158,6 +158,10 @@ const BODY_IDS: BodyId[] = ["earth", "moon", "mars", "jupiter", "saturn", "uranu
 const SUN_DIR = new THREE.Vector3(80, 30, 20).normalize();
 const SUN_DIST = 3500;
 const SUN_RADIUS = 260;
+// sun-hazard-v1: Sun ke paas garmi barhti hai (life support drain), aur ek "solar wall" andar jaane nahi deti.
+const SUN_POS = SUN_DIR.clone().multiplyScalar(SUN_DIST);
+const SUN_WARN = SUN_RADIUS * 3.6;
+const SUN_WALL = SUN_RADIUS * 1.5;
 const FLIGHT_PITCH_LIMIT = THREE.MathUtils.degToRad(75);
 const UPRIGHT_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
 const WORLD_X = new THREE.Vector3(1, 0, 0);
@@ -277,6 +281,9 @@ export class Spacebound {
   private ox = 100;
   private throttle = 0;
   private bank = 0;
+  private sunHeat = 0;
+  private sunToastT = 0;
+  private sunKill = false;
   private sUp = new THREE.Vector3();
   private sFwd = new THREE.Vector3();
   private sSide = new THREE.Vector3();
@@ -1876,10 +1883,12 @@ export class Spacebound {
     this.heat.position.copy(this.flightPos);
     if (alt < 8 && this.throttle > 0.35 && body === "earth") this.burst(rig, 6);
     this.audio.setThrottle(locked ? 0 : this.throttle);
-    this.life -= dt;
+    this.updateSunHazard(dt);
+    this.life -= dt + this.sunHeat * 60 * dt;
     if (this.life <= 0) {
       this.life = 90;
-      this.toast("Life support exhausted.");
+      this.toast(this.sunKill ? "Overheated near the Sun. Auto-abort to Earth orbit." : "Life support exhausted.");
+      this.sunKill = false;
       this.abortToOrbit();
       return;
     }
@@ -1921,11 +1930,44 @@ export class Spacebound {
     rig.group.rotateZ(this.bank);
   }
 
+  /**
+   * sun-hazard-v1: Sun ke qareeb garmi (life support tezi se girta hai), shake aur alarm; ek "solar wall" ship ko
+   * Sun ke andar jaane nahi deti. Isliye Sun par landing / bohat qareeb jaana mumkin nahi.
+   */
+  private updateSunHazard(dt: number): void {
+    const d = this.flightPos.distanceTo(SUN_POS);
+    const heat = THREE.MathUtils.clamp((SUN_WARN - d) / (SUN_WARN - SUN_WALL), 0, 1);
+    this.sunHeat = heat;
+    this.sunToastT = Math.max(0, this.sunToastT - dt);
+    if (heat <= 0) {
+      this.sunKill = false;
+      return;
+    }
+    if (heat > 0.5) this.sunKill = true;
+    if (!this.reduce) this.trauma = Math.max(this.trauma, heat * 0.55);
+    if (this.sunToastT <= 0) {
+      this.sunToastT = 3.2;
+      if (heat > 0.5) {
+        this.audio.alarm();
+        this.toast("DANGER: extreme solar heat. Turn away now!");
+      } else this.toast("Solar heat rising. Life support draining, turn away from the Sun.");
+    }
+    if (d < SUN_WALL) {
+      // wall: andar mat jaane do, ship ko bahar dhakelo aur inward speed khatam
+      this.v3.copy(this.flightPos).sub(SUN_POS).normalize();
+      this.flightPos.copy(SUN_POS).addScaledVector(this.v3, SUN_WALL);
+      const inward = this.flightV.dot(this.v3);
+      if (inward < 0) this.flightV.addScaledVector(this.v3, -inward);
+      this.flightV.addScaledVector(this.v3, 6);
+    }
+  }
+
   private applyLandingAssist(dt: number, body: BodyId, alt: number): void {
     this.assistActive = false;
     const rig = this.flightRig;
     if (!rig || !this.save.settings.assist || this.fuel <= 0) return;
-    if (BODIES[body].gas || alt > ASSIST_ALT || this.sinceLaunch < 8) return;
+    if (alt > ASSIST_ALT || this.sinceLaunch < 8) return;
+    if (BODIES[body].gas && alt > 10) return; // gas-landing-v1: flyby ke waqt dakhal nahi, sirf cloud deck ke qareeb
     const up = this.aUp.copy(this.flightPos).sub(this.bodyPos.get(body)!).normalize();
     const climb = this.flightV.dot(up);
     if (climb > 0.5) return;
@@ -2044,13 +2086,6 @@ export class Spacebound {
     const climb = this.flightV.dot(up);
     const descent = -climb;
     const horiz = this.v5.copy(this.flightV).addScaledVector(up, -climb).length();
-    if (def.gas) {
-      this.flightPos.copy(center).addScaledVector(up, def.radius + 8);
-      this.flightV.addScaledVector(up, 6);
-      this.audio.alarm();
-      this.toast(`${def.name} has no surface. Climb away from the clouds.`);
-      return;
-    }
     // land-anywhere-v1: every spot on a solid planet is landable. A marked zone only tightens the limits (hard zones) and pays its bonus.
     const lz = this.landingZone(body, true);
     const zone = lz && lz.inside ? lz : null;
@@ -2092,9 +2127,11 @@ export class Spacebound {
           this.tryEvent("lunar-landing");
         }
         if (body === "mars") this.tryEvent("mars-landing");
+        // gas-landing-v1: cloud-deck touchdown on a gas giant
+        if (def.gas) this.toast(`${def.name} cloud-deck touchdown. Egress when you're ready.`);
         this.life = this.stats().life;
         this.enterSurface(body, true);
-        this.toast(`${def.name} touchdown. Egress when you're ready.`);
+        if (!def.gas) this.toast(`${def.name} touchdown. Egress when you're ready.`);
       }
       const lres = this.recordLanding(body, descent, horiz, fuelFrac, tiltDeg, centerFrac, zone);
       this.landed = { body, n: spot };
@@ -2653,7 +2690,6 @@ export class Spacebound {
   private inEnvelope(): boolean {
     if (this.phase !== "flight") return false;
     const id = this.dominant();
-    if (BODIES[id].gas) return false;
     const alt = this.altitude();
     if (alt > 14) return false;
     const descent = -this.climbRate();
@@ -2765,14 +2801,21 @@ export class Spacebound {
 
   private enterSurface(body: BodyId, fresh: boolean): void {
     this.surfaceBody = body === "earth" ? "moon" : body;
-    const kind = this.surfaceBody === "mars" ? "mars" : "moon";
+    const sdef = BODIES[this.surfaceBody];
+    const kind: "moon" | "mars" | "cloud" = sdef.gas ? "cloud" : this.surfaceBody === "mars" ? "mars" : "moon";
     if (this.surfaceScene) {
       this.surfaceScene.remove(this.astro.group);
       this.disposeScene(this.surfaceScene);
     }
     this.surfaceScene = new THREE.Scene();
-    this.surfaceScene.fog = new THREE.FogExp2(kind === "moon" ? 0x07080c : 0x8a5344, kind === "moon" ? 0.012 : 0.016);
-    this.terrain = buildTerrain(kind, this.assets);
+    // gas-landing-v1: cloud deck ka fog + aasman us planet ke rang ka
+    const cloudCol = new THREE.Color(sdef.color).multiplyScalar(0.55);
+    this.surfaceScene.fog = new THREE.FogExp2(
+      kind === "moon" ? 0x07080c : kind === "cloud" ? cloudCol.getHex() : 0x8a5344,
+      kind === "moon" ? 0.012 : kind === "cloud" ? 0.02 : 0.016,
+    );
+    if (kind === "cloud") this.surfaceScene.background = cloudCol;
+    this.terrain = buildTerrain(kind, this.assets, kind === "cloud" ? this.surfaceBody : undefined);
     this.surfaceScene.add(this.terrain.group);
     if (kind === "moon") {
       this.surfaceScene.add(buildStars(1200, 80, 160));
@@ -2788,7 +2831,7 @@ export class Spacebound {
       this.surfaceScene.add(sun);
       this.surfaceScene.add(new THREE.HemisphereLight(0xb9c6d6, 0x22262c, 0.35));
     } else {
-      const sun = new THREE.DirectionalLight(0xffd2b0, 2);
+      const sun = new THREE.DirectionalLight(kind === "cloud" ? new THREE.Color(sdef.color).lerp(new THREE.Color(0xffffff), 0.55).getHex() : 0xffd2b0, 2);
       sun.position.set(16, 22, 8);
       sun.castShadow = this.save.settings.quality !== "low";
       this.surfaceScene.add(sun);

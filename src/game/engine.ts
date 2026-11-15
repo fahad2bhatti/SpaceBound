@@ -30,6 +30,7 @@ import {
   buildShip,
   buildSpaceport,
   buildStars,
+  buildSun,
   buildTerrain,
   type AstronautRig,
   type ShipRig,
@@ -153,6 +154,10 @@ const FREE_LAND = { maxDescent: 6, maxDrift: 4.8 };
 const BODY_IDS: BodyId[] = ["earth", "moon", "mars", "jupiter", "saturn", "uranus", "neptune"];
 // upright-turn-v1: upright rocket = nose up (rotate -90deg about X); gravity turn tilts it about the WORLD X axis.
 // arrow-pitch-v1: ship ab kabhi ulti nahi hoti. Up/Down arrow pitch is limit tak hi jata hai.
+// sun-v1: Sun flight scene mein us taraf hai jidhar se roshni aa rahi hai (DirectionalLight 80,30,20). Sirf visual: gravity/landing nahi.
+const SUN_DIR = new THREE.Vector3(80, 30, 20).normalize();
+const SUN_DIST = 3500;
+const SUN_RADIUS = 260;
 const FLIGHT_PITCH_LIMIT = THREE.MathUtils.degToRad(75);
 const UPRIGHT_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
 const WORLD_X = new THREE.Vector3(1, 0, 0);
@@ -2841,6 +2846,18 @@ export class Spacebound {
       new THREE.MeshBasicMaterial({ color: 0xffe2b0 }),
     );
     scene.add(sun);
+    const sunGlow = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: this.assets.puff,
+        color: 0xffb347,
+        opacity: 0.85,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    sunGlow.scale.setScalar(11);
+    scene.add(sunGlow);
     const order: BodyId[] = ["earth", "moon", "mars", "jupiter", "saturn", "uranus", "neptune"];
     order.forEach((id, i) => {
       const dist = i === 0 ? 0 : 8 + i * 4.4;
@@ -2918,6 +2935,9 @@ export class Spacebound {
     sun.position.set(80, 30, 20);
     scene.add(sun);
     scene.add(new THREE.AmbientLight(0x223044, 0.35));
+    const sunObj = buildSun(SUN_RADIUS, this.assets.puff);
+    sunObj.position.copy(SUN_DIR).multiplyScalar(SUN_DIST);
+    scene.add(sunObj);
     for (const id of BODY_IDS) {
       const def = BODIES[id];
       const mesh = new THREE.Mesh(
@@ -3214,6 +3234,14 @@ export class Spacebound {
     spin(this.padRig);
     const clouds = this.flightScene.getObjectByName("flightClouds");
     if (clouds && !this.reduce) clouds.rotation.y += dt * 0.01;
+    const sunObj = this.flightScene.getObjectByName("sun");
+    if (sunObj && !this.reduce) {
+      const t = performance.now() * 0.001;
+      const corona = sunObj.userData.corona as { sprite: THREE.Sprite; base: number }[];
+      corona.forEach((c, i) => c.sprite.scale.setScalar(c.base * (1 + 0.035 * Math.sin(t * (0.8 + i * 0.5) + i))));
+      const core = sunObj.getObjectByName("sunCore");
+      if (core) core.rotation.y += dt * 0.01;
+    }
     this.updatePuffs(dt);
     this.updateBeaconScales();
   }

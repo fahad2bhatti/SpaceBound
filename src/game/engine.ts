@@ -3249,6 +3249,11 @@ export class Spacebound {
     }
     this.camera.position.set(this.garageDist * 0.62, 2.2 + this.garageDist * 0.08, this.garageDist);
     this.camera.lookAt(0, 1.3, 0);
+    // garage-split-v1: ship screen ke ek aadhe hisse ke beech mein (landscape: left half, portrait: upar wala half);
+    // dusre half mein details panel hai.
+    const viewH = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * this.garageDist;
+    if (this.camera.aspect >= 1) this.camera.translateX(viewH * this.camera.aspect * 0.25);
+    else this.camera.translateY(-viewH * 0.25);
   }
 
   private animSolar(_dt: number, drag: { x: number; y: number }, wheel: number): void {

@@ -21,7 +21,12 @@ export type DestId =
   | "jupiter"
   | "saturn"
   | "uranus"
-  | "neptune";
+  | "neptune"
+  | DeepId;
+
+// deep-space-v1: gates beyond Neptune. Beacon only (no body, no landing), see deepOffset().
+export type DeepId = "proxima" | "orion" | "andromeda";
+export const DEEP_IDS: DeepId[] = ["proxima", "orion", "andromeda"];
 
 export type Upgrade = { engine: number; tank: number; nav: number };
 
@@ -408,6 +413,28 @@ export const DESTS: Record<DestId, DestDef> = {
     body: "neptune",
     blurb: BODIES.neptune.blurb,
   },
+  // deep-space-v1: route = distance from Earth. Each gate needs a galaxy-class ship (range 7000 / 14000 / 30000).
+  proxima: {
+    id: "proxima",
+    name: "Proxima Relay",
+    route: 5000,
+    body: null,
+    blurb: "The first relay beyond Neptune. Cross the dark and log its beacon.",
+  },
+  orion: {
+    id: "orion",
+    name: "Orion Gate",
+    route: 9500,
+    body: null,
+    blurb: "A gate on the rim of a distant nebula. Long, cold and empty.",
+  },
+  andromeda: {
+    id: "andromeda",
+    name: "Andromeda Gate",
+    route: 20000,
+    body: null,
+    blurb: "The farthest gate in the catalog. A crossing for the Ark-class hull.",
+  },
 };
 
 export const DEST_LIST: DestId[] = [
@@ -420,6 +447,7 @@ export const DEST_LIST: DestId[] = [
   "saturn",
   "uranus",
   "neptune",
+  ...DEEP_IDS,
 ];
 
 export const MISSIONS: MissionDef[] = [
@@ -586,6 +614,35 @@ export const MISSIONS: MissionDef[] = [
     unlocks: null,
     dest: "neptune",
   },
+  // deep-space-v1: gates beyond Neptune. Side missions at the end of the list (main chain unchanged); all open after the
+  // Neptune survey and can be flown in any order, so a long trip is never wasted on a locked gate.
+  {
+    id: "proxima-relay",
+    name: "Proxima Relay",
+    brief: "Fly the long dark to the first relay beyond Neptune and log its beacon.",
+    reward: 40000,
+    requires: "neptune-survey",
+    unlocks: null,
+    dest: "proxima",
+  },
+  {
+    id: "orion-gate",
+    name: "Orion Gate",
+    brief: "Reach the gate on the rim of the nebula and log its beacon.",
+    reward: 80000,
+    requires: "neptune-survey",
+    unlocks: null,
+    dest: "orion",
+  },
+  {
+    id: "andromeda-gate",
+    name: "Andromeda Gate",
+    brief: "Make the longest crossing in the catalog and log the Andromeda beacon.",
+    reward: 150000,
+    requires: "neptune-survey",
+    unlocks: null,
+    dest: "andromeda",
+  },
 ];
 
 export const NAV_BONUS = 0.05;
@@ -667,6 +724,14 @@ export function bodyOffset(id: BodyId): [number, number, number] {
   };
   const a = ang[id];
   return [Math.cos(a) * b.dist, Math.sin(a) * b.dist * 0.07, Math.sin(a) * b.dist];
+}
+
+/** deep-space-v1: gate position. Same ecliptic formula as bodyOffset. Angles keep every route far from the Sun (azimuth ~0.25 rad). */
+const DEEP_ANGLE: Record<DeepId, number> = { proxima: 5.0, orion: 5.4, andromeda: 5.8 };
+export function deepOffset(id: DeepId): [number, number, number] {
+  const a = DEEP_ANGLE[id];
+  const r = DESTS[id].route;
+  return [Math.cos(a) * r, Math.sin(a) * r * 0.07, Math.sin(a) * r];
 }
 
 export function cruiseMultiplier(distanceFromEarth: number): number {

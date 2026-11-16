@@ -4,6 +4,8 @@ import {
   activeMission,
   BODIES,
   bodyOffset,
+  DEEP_IDS,
+  deepOffset,
   cruiseMultiplier,
   DESTS,
   gateShip,
@@ -275,6 +277,7 @@ export class Spacebound {
 
   private bodyPos = new Map<BodyId, THREE.Vector3>();
   private beacons = new Map<string, THREE.Vector3>();
+  private flightStars: THREE.Points | null = null; // deep-space-v1: follows the ship, so the sky never runs out far from Earth
   private station = new THREE.Vector3();
   private heat: THREE.Mesh;
   private puffGroup = new THREE.Group();
@@ -1898,6 +1901,7 @@ export class Spacebound {
     this.updateAtmosphere(dt, body, alt, cap);
     this.applyLandingAssist(dt, body, alt);
     this.flightPos.addScaledVector(this.flightV, dt);
+    this.flightStars?.position.copy(this.flightPos);
     this.resolveGround(body);
     rig.group.position.copy(this.flightPos);
     rig.group.quaternion.normalize();
@@ -2221,6 +2225,20 @@ export class Spacebound {
           }
         } else if (bd > 18) this.flyPaid.delete(id);
       }
+    }
+    // deep-space-v1: beyond-Neptune gates are beacon only. Pass within 8 su to log the gate's mission (same rule as the gas beacons).
+    for (const id of DEEP_IDS) {
+      const b = this.beacons.get(id);
+      if (!b) continue;
+      const bd = this.flightPos.distanceTo(b);
+      if (bd < 8) {
+        if (!this.flyPaid.has(id)) {
+          this.flyPaid.add(id);
+          const m = MISSIONS.find((x) => x.dest === id);
+          if (m) this.tryEvent(m.id);
+          this.toast(DESTS[id].name + " beacon logged.");
+        }
+      } else if (bd > 18) this.flyPaid.delete(id);
     }
   }
 
@@ -3007,7 +3025,8 @@ export class Spacebound {
 
   private buildFlight(): void {
     const scene = this.flightScene;
-    scene.add(buildStars(this.starCount(), 400, 1200));
+    this.flightStars = buildStars(this.starCount(), 400, 1200);
+    scene.add(this.flightStars);
     scene.add(new THREE.HemisphereLight(0xc5d7ee, 0x0c0e12, 0.22));
     const sun = new THREE.DirectionalLight(0xfff6ea, 2.3);
     sun.position.set(80, 30, 20);
@@ -3109,6 +3128,10 @@ export class Spacebound {
     this.station.copy(this.bodyPos.get("moon")!).normalize().multiplyScalar(STATION_DIST);
     this.beacons.set("earth", PAD.clone().multiplyScalar(BODIES.earth.radius));
     this.beacons.set("station", this.station.clone());
+    for (const id of DEEP_IDS) {
+      const [x, y, z] = deepOffset(id);
+      this.beacons.set(id, new THREE.Vector3(x, y, z));
+    }
     for (const id of BODY_IDS) {
       if (id === "earth") continue;
       const def = BODIES[id];

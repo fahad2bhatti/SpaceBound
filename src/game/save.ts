@@ -182,7 +182,10 @@ export function sanitize(raw: Partial<SaveData>): SaveData {
     dest === "jupiter" ||
     dest === "saturn" ||
     dest === "uranus" ||
-    dest === "neptune"
+    dest === "neptune" ||
+    dest === "proxima" ||
+    dest === "orion" ||
+    dest === "andromeda"
       ? dest
       : "orbit";
   // Saves from before tips existed: players who already launched have seen enough.

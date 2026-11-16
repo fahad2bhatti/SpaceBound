@@ -1,13 +1,13 @@
 // missions-guide-v1: har planet ki guide + mission ko planet se jodne ke helpers. Pure TypeScript (no three.js / DOM).
 // Numbers (route, SOI, gravity, zones, score multiplier) catalog / planets / landing se aate hain, taake config badle to guide khud sahi rahe.
-import { BODIES, SHIP_LIST, gateShip, type BodyId, type DestId, type MissionDef, type ShipDef } from "./catalog";
+import { BODIES, DEEP_IDS, DESTS, SHIP_LIST, gateShip, type BodyId, type DeepId, type DestId, type MissionDef, type ShipDef } from "./catalog";
 import { BODY_MULT } from "./landing";
 import { KIND_LABEL, PLANETS } from "./planets";
 
-export type PlaceId = BodyId;
+export type PlaceId = BodyId | "deep"; // deep-space-v1: "deep" = the gates beyond Neptune
 
 /** Order shown in the Missions screen strip. Earth also covers the parking orbit and Vesper Station. */
-export const PLACE_ORDER: PlaceId[] = ["earth", "moon", "mars", "jupiter", "saturn", "uranus", "neptune"];
+export const PLACE_ORDER: PlaceId[] = ["earth", "moon", "mars", "jupiter", "saturn", "uranus", "neptune", "deep"];
 
 export const PLACE_TAG: Record<PlaceId, string> = {
   earth: "Home · orbit · station",
@@ -17,6 +17,7 @@ export const PLACE_TAG: Record<PlaceId, string> = {
   saturn: "Gas giant · 1380 su",
   uranus: "Ice giant · 2150 su",
   neptune: "Ice giant · 2700 su",
+  deep: "Beyond Neptune · " + DESTS.proxima.route + "+ su",
 };
 
 export type GuideSection = { title: string; lines: string[] };
@@ -30,9 +31,14 @@ export type Guide = {
 };
 
 /** Destination point -> the planet it belongs to on the Missions screen. */
+export function placeName(id: PlaceId): string {
+  return id === "deep" ? "Deep Space" : BODIES[id].name;
+}
+
 export function placeOfDest(dest: DestId | null): PlaceId {
   if (!dest || dest === "orbit" || dest === "station" || dest === "earth") return "earth";
-  return dest as PlaceId;
+  if (DEEP_IDS.includes(dest as DeepId)) return "deep";
+  return dest as BodyId;
 }
 
 export function placeOfMission(m: MissionDef): PlaceId {
@@ -42,7 +48,7 @@ export function placeOfMission(m: MissionDef): PlaceId {
 const SUN_WARNING =
   "Never fly toward the Sun. Heat drains life support fast, the ship shakes and an alarm sounds. A solar wall stops you and an overheated ship is sent back to Earth orbit.";
 
-const STATIC: Record<PlaceId, { summary: string; reach: string[]; landing: string[]; onFoot: string[]; danger: string[] }> = {
+const STATIC: Record<BodyId, { summary: string; reach: string[]; landing: string[]; onFoot: string[]; danger: string[] }> = {
   earth: {
     summary: "Northline Launch Complex. Every trip starts and ends here. Vesper Station waits on the Earth-Moon route.",
     reach: [
@@ -134,11 +140,11 @@ const STATIC: Record<PlaceId, { summary: string; reach: string[]; landing: strin
       "Fuel the ship fully before the trip. Refuelling far from Earth costs double.",
     ],
     onFoot: ["Survey contracts ask for a walk on the deck. Keep it short."],
-    danger: ["This is the farthest point you can fly to. Finishing the Neptune survey opens the galaxy-class ships in the garage."],
+    danger: ["This is the farthest planet. Finishing the Neptune survey opens the galaxy-class ships in the garage and the Deep Space gates."],
   },
 };
 
-function zoneLines(id: PlaceId): string[] {
+function zoneLines(id: BodyId): string[] {
   const cfg = PLANETS[id];
   if (id === "earth" || !cfg.zones.length) return [];
   return cfg.zones.map((z) => {
@@ -147,7 +153,43 @@ function zoneLines(id: PlaceId): string[] {
   });
 }
 
+/** deep-space-v1: Deep Space guide. No planet numbers: the gates come straight from DESTS and the ship list. */
+function deepGuide(): Guide {
+  const gates = DEEP_IDS.map((id) => DESTS[id]);
+  const first = gates[0]!;
+  const last = gates[gates.length - 1]!;
+  return {
+    place: "deep",
+    name: "Deep Space",
+    summary: "Open space beyond Neptune. Nothing to land on: fly to each gate and log its beacon.",
+    facts: [
+      { label: "Gates", value: String(gates.length) },
+      { label: "Routes", value: first.route + "-" + last.route + " su" },
+      { label: "Landing", value: "None" },
+    ],
+    sections: [
+      { title: "Gates", lines: gates.map((d) => d.name + " · " + d.route + " su · needs " + gateShip(d.route).name) },
+      {
+        title: "Getting there",
+        lines: [
+          "Open the Solar chart, pick a gate and set it as the nav target. Only the galaxy-class hulls have the range, and they open in the garage after the Neptune survey.",
+          "Raise throttle until you reach cruise speed, then cut it. There is no drag in open space, so the ship coasts and burns no fuel.",
+          "Passing within 8 su of a gate's beacon logs it. The gates can be flown in any order.",
+        ],
+      },
+      {
+        title: "Dangers",
+        lines: [
+          "Thrust is cut beyond your ship's certified range. From there you can only coast, or abort with Esc back to Earth orbit.",
+          "Trips take minutes. Check fuel and life support before you set off.",
+        ],
+      },
+    ],
+  };
+}
+
 export function guideFor(place: PlaceId): Guide {
+  if (place === "deep") return deepGuide();
   const def = BODIES[place];
   const s = STATIC[place];
   const mult = BODY_MULT[place] ?? 1;

@@ -495,7 +495,7 @@ function Solar({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
             <X className="size-5" />
           </button>
         </div>
-        <p className="sb-hide-short mt-2 text-sm text-muted">Drag to orbit the chart. Click a planet. The orrery is not to scale. Route ratings are.</p>
+        <p className="sb-hide-short mt-2 text-sm text-muted">Drag to orbit the chart. Click a planet or a galaxy, and zoom out to find the galaxies. The orrery is not to scale. Route ratings are.</p>
         <p className="mt-3 font-display text-sm tracking-widest text-primary">{SHIPS[snap.selected].name}</p>
         <p className="text-sm text-fg">Certified range {km(stats.range)}</p>
         {snap.chartSun ? (

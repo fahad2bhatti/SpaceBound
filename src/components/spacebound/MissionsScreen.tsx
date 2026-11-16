@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Navigation, X } from "lucide-react";
 import { DESTS, MISSIONS, activeMission, formatInt, missionState, shipStats, BODIES, type MissionDef } from "@/game/catalog";
-import { PLACE_ORDER, PLACE_TAG, guideFor, placeOfMission, shipsUnlockedBy, type PlaceId } from "@/game/guide";
+import { PLACE_ORDER, PLACE_TAG, guideFor, placeName, placeOfMission, shipsUnlockedBy, type PlaceId } from "@/game/guide";
 import type { Spacebound, Snap } from "@/game/engine";
 import type { Difficulty } from "@/game/contracts/types";
 import { Card } from "./Contracts";
@@ -53,7 +53,7 @@ export function MissionsScreen({ snap, act }: { snap: Snap; act: Act }) {
   const guide = guideFor(place);
   const missions = MISSIONS.filter((m) => placeOfMission(m) === place);
   const contracts = snap.contracts.all.filter((c) => c.planet === place).sort((a, b) => DIFF_RANK[a.difficulty] - DIFF_RANK[b.difficulty]);
-  const route = BODIES[place].route;
+  const route = place === "earth" || place === "deep" ? 0 : BODIES[place].route;
   const stats = shipStats(snap.selected, snap.upgrades[snap.selected]);
   const canReach = stats.range + 0.01 >= route;
 
@@ -84,7 +84,7 @@ export function MissionsScreen({ snap, act }: { snap: Snap; act: Act }) {
             </div>
           ))}
         </div>
-        {place !== "earth" && (
+        {place !== "earth" && place !== "deep" && (
           <p className={"text-sm " + (canReach ? "text-primary" : "text-accent")}>
             {canReach ? "Your selected ship can fly this route." : "Your selected ship cannot reach this yet. See the Needs line above."}
           </p>
@@ -141,7 +141,7 @@ export function MissionsScreen({ snap, act }: { snap: Snap; act: Act }) {
                 className={"shrink-0 border px-3 py-2 text-left " + (on ? "border-accent bg-bg/90" : "border-line bg-bg/70 hover:border-primary")}
                 onClick={() => setPlace(id)}
               >
-                <span className="block font-display text-lg uppercase leading-none">{BODIES[id].name}</span>
+                <span className="block font-display text-lg uppercase leading-none">{placeName(id)}</span>
                 <span className="block text-xs text-muted">{PLACE_TAG[id]}</span>
                 <span className={"block font-display text-sm " + (done === ms.length && ms.length > 0 ? "text-primary" : "text-fg")}>
                   {done}/{ms.length} done

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { Assets } from "./assets";
-import type { BodyId, ShipId } from "./catalog";
+import type { BodyId, DeepId, ShipId } from "./catalog";
 
 export type AstronautRig = {
   group: THREE.Group;
@@ -614,6 +614,48 @@ function sunTexture(): THREE.CanvasTexture {
 }
 
 /** sun-v1: glowing Sun = textured core + two additive corona sprites. `puff` is the shared radial-gradient texture. */
+/** deep-galaxy-v1: where each gate's galaxy sits on the Solar chart (not to scale). Planet orbits end at 34.4, the camera zooms out to dist * 1.7. */
+export const CHART_ZOOM_MAX = 150;
+export const CHART_GALAXY: Record<DeepId, { ang: number; dist: number; size: number; tilt: number; color: string }> = {
+  proxima: { ang: 5.6, dist: 50, size: 2.6, tilt: 0.5, color: "#ffc27a" },
+  orion: { ang: 0.1, dist: 64, size: 3.6, tilt: -0.6, color: "#ff8fb8" },
+  andromeda: { ang: 0.75, dist: 82, size: 5, tilt: 0.9, color: "#a99bff" },
+};
+
+/** deep-galaxy-v1: spiral galaxy for the Solar chart: a bright core and two wound arms of points, flat in the xz plane. */
+export function buildGalaxy(size: number, color: string): THREE.Points {
+  const COUNT = 700;
+  const pos = new Float32Array(COUNT * 3);
+  const col = new Float32Array(COUNT * 3);
+  const rim = new THREE.Color(color);
+  const core = new THREE.Color("#fff4dc");
+  const c = new THREE.Color();
+  for (let i = 0; i < COUNT; i++) {
+    const t = Math.pow(Math.random(), 0.7); // 0 = core, 1 = rim; denser towards the middle
+    const r = t * size;
+    const a = (i % 2) * Math.PI + t * 5 + (Math.random() - 0.5) * 0.7; // two arms, wound, a little scatter
+    pos[i * 3] = Math.cos(a) * r;
+    pos[i * 3 + 1] = (Math.random() - 0.5) * size * 0.08 * (1 - t);
+    pos[i * 3 + 2] = Math.sin(a) * r;
+    c.copy(core).lerp(rim, Math.min(1, t * 1.4));
+    col[i * 3] = c.r;
+    col[i * 3 + 1] = c.g;
+    col[i * 3 + 2] = c.b;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  const mat = new THREE.PointsMaterial({
+    size: 0.35,
+    sizeAttenuation: true,
+    vertexColors: true,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  return new THREE.Points(geo, mat);
+}
+
 export function buildSun(radius: number, puff: THREE.Texture): THREE.Group {
   const g = new THREE.Group();
   g.name = "sun";

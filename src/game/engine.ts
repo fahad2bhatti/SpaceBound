@@ -32,6 +32,9 @@ import {
   buildShip,
   buildSpaceport,
   buildStars,
+  buildGalaxy,
+  CHART_GALAXY,
+  CHART_ZOOM_MAX,
   buildSun,
   buildTerrain,
   type AstronautRig,
@@ -267,6 +270,7 @@ export class Spacebound {
   private solarYaw = 0.4;
   private solarPitch = 0.35;
   private solarDist = 36;
+  private framedFocus: DestId | null = null; // deep-galaxy-v1: chart focus the camera was last framed for
   private menuT = 0;
   private solarMeshes: THREE.Object3D[] = [];
   // solar-sun-v1: chart mein Sun bhi chunna ja sakta hai (destination nahi, sirf info card)
@@ -2998,6 +3002,22 @@ export class Spacebound {
         scene.add(ring);
       }
     });
+    // deep-galaxy-v1: every gate is a spiral galaxy beyond Neptune. The invisible sphere is the click target (userData.dest, like the
+    // planets) and carries the tilt and the spin (the loop in animSolar turns every solarMeshes entry about its own y axis).
+    for (const id of DEEP_IDS) {
+      const g = CHART_GALAXY[id];
+      const hit = new THREE.Mesh(
+        new THREE.SphereGeometry(g.size, 8, 6),
+        new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
+      );
+      hit.position.set(Math.cos(g.ang) * g.dist, 0, Math.sin(g.ang) * g.dist);
+      hit.rotation.x = g.tilt;
+      hit.userData.dest = id;
+      hit.userData.ringScale = g.size * 1.3;
+      hit.add(buildGalaxy(g.size, g.color));
+      scene.add(hit);
+      this.solarMeshes.push(hit);
+    }
     scene.add(this.focusRing);
   }
 
@@ -3297,7 +3317,7 @@ export class Spacebound {
   private animSolar(_dt: number, drag: { x: number; y: number }, wheel: number): void {
     this.solarYaw += drag.x * 0.005;
     this.solarPitch = THREE.MathUtils.clamp(this.solarPitch + drag.y * 0.003, -0.2, 1.05);
-    this.solarDist = THREE.MathUtils.clamp(this.solarDist + wheel * 0.02, 16, 78);
+    this.solarDist = THREE.MathUtils.clamp(this.solarDist + wheel * 0.02, 16, CHART_ZOOM_MAX);
     const cp = Math.cos(this.solarPitch);
     this.camera.position.set(
       Math.sin(this.solarYaw) * this.solarDist * cp,
@@ -3311,9 +3331,16 @@ export class Spacebound {
       this.camera.translateX(viewH * this.camera.aspect * (this.sidePanelFrac() / 2));
     }
     const focus = this.chartSun ? this.solarSunGroup : this.solarMeshes.find((m) => m.userData.dest === this.chartFocus);
+    // deep-galaxy-v1: a galaxy sits outside the planets, so the camera backs off to show the selected one; a planet brings the default view back.
+    if (focus && !this.chartSun && this.chartFocus !== this.framedFocus) {
+      this.framedFocus = this.chartFocus;
+      const far = focus.position.length();
+      if (far > 40) this.solarDist = Math.min(CHART_ZOOM_MAX, Math.max(this.solarDist, far * 1.7));
+      else if (this.solarDist > 80) this.solarDist = 36;
+    }
     if (focus) {
       this.focusRing.position.copy(focus.position);
-      this.focusRing.scale.setScalar(this.chartSun ? 3 : 1);
+      this.focusRing.scale.setScalar(this.chartSun ? 3 : ((focus.userData.ringScale as number | undefined) ?? 1));
       this.focusRing.lookAt(this.camera.position);
     }
     if (!this.reduce) {

@@ -7,6 +7,7 @@ const { CONTRACTS } = await import(R + "contracts/data.ts");
 const { defaultContractsSave } = await import(R + "contracts/state.ts");
 const { MISSIONS, BODIES, DESTS, DEST_LIST, DEEP_IDS, SHIPS, activeMission, missionState, SHIP_LIST, gateShip, deepOffset } = await import(R + "catalog.ts");
 const { sanitize, defaultSave } = await import(R + "save.ts");
+const { buildGalaxy, CHART_GALAXY, CHART_ZOOM_MAX } = await import(R + "models.ts");
 const { PLACE_ORDER, guideFor, placeOfDest, placeOfMission, shipsUnlockedBy } = await import(R + "guide.ts");
 
 let passed = 0;
@@ -156,6 +157,40 @@ t("deep-space guide lists every gate with the ship it needs", () => {
 t("save: a deep-space destination survives sanitize, an unknown one falls back to orbit", () => {
   for (const id of DEEP_IDS) assert.equal(sanitize({ ...defaultSave(), destination: id }).destination, id);
   assert.equal(sanitize({ ...defaultSave(), destination: "nowhere" as any }).destination, "orbit");
+});
+
+t("chart galaxies: one per gate, beyond the planet orbits, apart from each other, framing fits the zoom limit", () => {
+  assert.deepEqual(Object.keys(CHART_GALAXY).sort(), [...DEEP_IDS].sort());
+  const NEPTUNE_ORBIT = 8 + 6 * 4.4; // engine.ts buildSolar: planet orbit radius
+  let prev = 0;
+  DEEP_IDS.forEach((id, i) => {
+    const g = CHART_GALAXY[id];
+    assert.ok(g.dist - g.size > NEPTUNE_ORBIT + 2, id + " is outside the planets");
+    assert.ok(g.dist > prev, id + " is farther than the gate before it");
+    assert.ok(g.dist * 1.7 <= CHART_ZOOM_MAX, id + " fits the zoom limit");
+    prev = g.dist;
+    for (let j = i + 1; j < DEEP_IDS.length; j++) {
+      const h = CHART_GALAXY[DEEP_IDS[j]];
+      const sep = Math.hypot(Math.cos(g.ang) * g.dist - Math.cos(h.ang) * h.dist, Math.sin(g.ang) * g.dist - Math.sin(h.ang) * h.dist);
+      assert.ok(sep > g.size + h.size + 5, id + " and " + DEEP_IDS[j] + " do not touch");
+    }
+  });
+});
+
+t("buildGalaxy: 700 finite points inside the radius, flat, colours in range", () => {
+  const size = 4;
+  const p = buildGalaxy(size, "#a99bff");
+  const pos = p.geometry.getAttribute("position");
+  const col = p.geometry.getAttribute("color");
+  assert.equal(pos.count, 700);
+  assert.equal(col.count, 700);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    assert.ok(Number.isFinite(x + y + z), "finite " + i);
+    assert.ok(Math.hypot(x, z) <= size + 1e-4, "inside radius " + i);
+    assert.ok(Math.abs(y) <= size * 0.04 + 1e-4, "flat " + i);
+    for (const v of [col.getX(i), col.getY(i), col.getZ(i)]) assert.ok(v >= 0 && v <= 1, "colour " + i);
+  }
 });
 
 console.log(`\n${passed} passed`);

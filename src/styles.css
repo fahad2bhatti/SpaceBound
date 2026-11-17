@@ -360,3 +360,12 @@
 @keyframes sb-fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .sb-fade { animation: sb-fade-in 0.7s ease both; }
 .sb-select { color-scheme: dark; background: var(--color-surface); border: 1px solid var(--color-line); color: var(--color-fg); min-height: 2.75rem; padding: 0 0.5rem; font-size: 1rem; }
+
+/* welcome-gate-v2: chhoti landscape screen par card compact, taake terms poori screen mein aaye */
+@media (max-height: 520px) and (orientation: landscape) {
+  .sb-welcome { gap: 0.5rem; padding: 0.625rem 1rem; }
+  .sb-welcome h1 { font-size: 2.25rem; }
+  .sb-welcome h2 { font-size: 1.5rem; }
+  .sb-welcome button { min-height: 2.5rem; padding-top: 0.25rem; padding-bottom: 0.25rem; font-size: 1.05rem; }
+  .sb-welcome p { font-size: 0.8125rem; line-height: 1.35; }
+}

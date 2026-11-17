@@ -311,22 +311,31 @@ function Menu({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =>
         {snap.confirmNew ? (
           <>
             <p className="text-sm text-fg">Starting fresh replaces the saved mission.</p>
-            <Cmd tone="accent" onClick={() => act((e) => e.newGame())}>
-              Start fresh <Play className="size-5" />
-            </Cmd>
-            <Cmd onClick={() => act((e) => e.cancelNew())}>Keep save</Cmd>
+            <div className="sb-menu-main grid gap-4">
+              <Cmd tone="accent" onClick={() => act((e) => e.newGame())}>
+                Start fresh <Play className="size-5" />
+              </Cmd>
+              <Cmd onClick={() => act((e) => e.cancelNew())}>Keep save</Cmd>
+            </div>
           </>
         ) : (
-          <>
-            <Cmd tone="accent" onClick={() => act((e) => e.requestNew())}>
-              New Game <Play className="size-5" />
-            </Cmd>
-            {snap.started && (
-              <Cmd onClick={() => act((e) => e.continueGame())}>
-                Continue <Rocket className="size-5" />
+          // ui-review-v1: saved game ho to Continue pehle (orange), New Game uske saath
+          <div className="sb-menu-main grid gap-4">
+            {snap.started ? (
+              <>
+                <Cmd tone="accent" onClick={() => act((e) => e.continueGame())}>
+                  Continue <Rocket className="size-5" />
+                </Cmd>
+                <Cmd onClick={() => act((e) => e.requestNew())}>
+                  New Game <Play className="size-5" />
+                </Cmd>
+              </>
+            ) : (
+              <Cmd tone="accent" onClick={() => act((e) => e.requestNew())}>
+                New Game <Play className="size-5" />
               </Cmd>
             )}
-          </>
+          </div>
         )}
         <div className="sb-menu-grid flex flex-col gap-4">
           <Cmd onClick={() => act((e) => e.open("garage"))}>
@@ -804,7 +813,7 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
       <div className="absolute right-4 top-4 border border-line bg-bg/80 p-3 text-right backdrop-blur-md sm:right-6 sm:top-6 sb-dest">
         <p className="font-display text-xs tracking-widest text-primary">{DESTS[snap.destination].name}</p>
         <p className="font-display text-xl">{formatClock(snap.life)} LIFE</p>
-        {flight && <p className="text-xs text-muted">{Math.round(snap.destDist)} su to target</p>}
+        {flight && <p className="text-xs text-muted">{km(snap.destDist)} to target</p>}
       </div>
       {flight && snap.freeCam && (
         <p className="pointer-events-none absolute left-1/2 top-[8.5rem] -translate-x-1/2 whitespace-nowrap font-display text-xs tracking-widest text-muted">
@@ -890,7 +899,7 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
                   {snap.zones.target.name}
                 </p>
                 <p className="text-xs text-muted">
-                  {snap.zones.target.inside ? "IN ZONE" : snap.zones.target.kind.toUpperCase() + " · " + Math.round(snap.zones.target.dist) + " su"}
+                  {snap.zones.target.inside ? "IN ZONE" : snap.zones.target.kind.toUpperCase() + " · " + km(snap.zones.target.dist)}
                 </p>
               </div>
               <svg
@@ -919,7 +928,7 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
         <>
           <div className="absolute bottom-6 left-4 border border-line bg-bg/80 p-3 backdrop-blur-md sb-ox">
             <p className="text-xs text-muted">SHUTTLE RANGE</p>
-            <p className="font-display text-3xl">{Math.round(snap.eva.range)} su</p>
+            <p className="font-display text-3xl">{Math.round(snap.eva.range)} m</p>
             {!snap.contracts.active?.oxygen && <p className="text-xs text-muted">OXYGEN {Math.round(snap.ox)}%</p>}
             <div className="mt-1 h-1.5 w-32 bg-line">
               <div
@@ -1206,7 +1215,7 @@ function Waypoint({ engineRef, name }: { engineRef: React.RefObject<Spacebound |
         arrow.current.style.transform = "rotate(" + Math.round(pos.angle) + "deg)";
       }
       if (ring.current) ring.current.style.display = pos.off ? "none" : "block";
-      if (label.current) label.current.textContent = name.toUpperCase() + " · " + Math.round(p.dist) + " su";
+      if (label.current) label.current.textContent = name.toUpperCase() + " · " + km(p.dist);
     };
     loop();
     return () => cancelAnimationFrame(raf);

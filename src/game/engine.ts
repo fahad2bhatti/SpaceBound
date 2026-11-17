@@ -3835,7 +3835,7 @@ export class Spacebound {
     if (mission.id === "reach-orbit") return `Hold the band  ${this.orbitHold.toFixed(1)} / 6 s`;
     if (mission.id === "moon-samples") return `Samples ${this.save.samples.moon ?? 0} / 3`;
     if (mission.id === "mars-samples") return `Samples ${this.save.samples.mars ?? 0} / 3`;
-    if (this.phase === "flight") return `${mission.brief}  ·  ${Math.round(this.flightPos.distanceTo(this.targetPoint(this.v5)))} su out`;
+    if (this.phase === "flight") return `${mission.brief}  ·  ${km(this.flightPos.distanceTo(this.targetPoint(this.v5)))} out`;
     return mission.brief;
   }
 

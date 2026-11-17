@@ -87,7 +87,7 @@ t("gas contracts stay locked until range and campaign step are met", () => {
   const { m, c } = make({ range: 360, campaignDone: [] });
   const jup = () => m.allView().find((x: any) => x.id === "jupiter-cloud-survey");
   assert.equal(jup().status, "locked");
-  assert.match(m.accept("jupiter-cloud-survey", { any: true }) ?? "", /Needs 900/);
+  assert.match(m.accept("jupiter-cloud-survey", { any: true }) ?? "", /Needs 36,000 km/);
   c.range = 1200;
   assert.match(jup().lockedReason ?? "", /Finish campaign/);
   c.campaignDone = ["jupiter-flyby"];

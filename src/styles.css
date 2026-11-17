@@ -157,6 +157,67 @@
   .sb-preflight button { min-height: 2.25rem; padding: 0.2rem 0.6rem; font-size: 0.9rem; }
 }
 
+/* panels-compact-v1: Garage, Settings, Credits phone landscape (chhoti height) par fit.
+   Header (naam + X) upar chipka rehta hai, sirf neeche ka content scroll hota hai. */
+.sb-toggle .sb-pill { min-width: 2.75rem; text-align: center; line-height: 1.5; }
+.sb-settings input[type="range"] { accent-color: var(--color-primary); }
+@media (max-height: 520px) and (orientation: landscape) {
+  .sb-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    margin: -0.6rem -0.9rem 0;
+    padding: 0.6rem 0.9rem 0.35rem;
+    background: color-mix(in srgb, var(--color-bg) 96%, transparent);
+  }
+  .sb-head h2 { font-size: 1.6rem; line-height: 1; }
+  .sb-head > button { min-height: 2.25rem; min-width: 2.25rem; }
+
+  /* Garage */
+  .sb-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .sb-garage-side > p.font-display { font-size: 1rem; line-height: 1; }
+  .sb-garage-stats { row-gap: 0; column-gap: 0.75rem; }
+  .sb-garage-stats > div { padding: 0.1rem 0; font-size: 0.72rem; }
+  .sb-garage-stats svg { display: none; }
+  .sb-garage-actions { grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 0.4rem; }
+  .sb-garage-actions button { justify-content: center; gap: 0.4rem; padding-left: 0.5rem; padding-right: 0.5rem; text-align: center; }
+  .sb-garage-actions button svg { width: 1rem; height: 1rem; }
+  .sb-garage-ups { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.35rem; }
+  .sb-garage-ups button {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0;
+    padding: 0.2rem 0.45rem;
+    font-size: 0.72rem;
+    line-height: 1.2;
+  }
+  .sb-garage-strip { gap: 0.35rem; padding: 0.35rem; }
+  .sb-garage-strip button { padding: 0.2rem 0.5rem; }
+  .sb-garage-strip .font-display { font-size: 0.9rem; }
+  .sb-garage-strip .text-xs { font-size: 0.65rem; }
+
+  /* Settings: is screen ke peeche koi 3D cheez center nahi hoti, is liye panel thoda chaura (2 columns aaram se) */
+  .sb-settings.sb-pane { width: 60%; max-width: 40rem; gap: 0.4rem 0.6rem; }
+  .sb-settings > .sb-head { grid-column: 1 / -1; }
+  /* sliders aur graphics bhi aadhi width: 2 column mein poori screen ek nazar mein */
+  .sb-settings > label.grid,
+  .sb-settings > .sb-quality { grid-column: auto; }
+  .sb-settings .sb-toggle { min-height: 2.25rem; padding: 0 0.6rem; font-size: 0.85rem; }
+  .sb-settings .sb-pill { font-size: 0.75rem; }
+  .sb-settings .sb-toggle svg { width: 1rem; height: 1rem; }
+  .sb-settings label { gap: 0.1rem; }
+  .sb-settings input[type="range"] { height: 1.25rem; }
+  .sb-settings .grid-cols-3 button { min-height: 2.25rem; }
+  .sb-reset { grid-template-columns: 1fr 1fr; gap: 0.4rem; }
+  .sb-reset > p { grid-column: 1 / -1; }
+
+  /* Credits: do paragraph saath saath, Return chhota */
+  .sb-credits.sb-panel-wide { max-width: 40rem; }
+  .sb-credits-body { grid-template-columns: 1fr 1fr; gap: 0.9rem; }
+  .sb-credits > button:last-child { max-width: 12rem; }
+}
+
 /* hud-compact-v1 */
 @media (max-height: 520px) and (orientation: landscape) {
   /* touch controls neeche, bottom-center jagah khali */

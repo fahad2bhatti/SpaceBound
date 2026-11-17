@@ -365,7 +365,7 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
   return (
     <div className="sb-garage">
       <aside className="sb-garage-side pointer-events-auto flex flex-col gap-3 overflow-y-auto bg-bg/90 p-4 backdrop-blur-md sm:p-6">
-        <div className="flex items-start justify-between gap-3">
+        <div className="sb-head flex items-start justify-between gap-3">
           <div>
             <p className="font-display text-sm tracking-widest text-primary">{ship.category}</p>
             <h2 className="font-display text-4xl uppercase">{ship.name}</h2>
@@ -374,7 +374,7 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
             <X className="size-5" />
           </button>
         </div>
-        <p className="text-sm text-muted">{ship.blurb}</p>
+        <p className="sb-clamp-2 text-sm text-muted">{ship.blurb}</p>
         <p className="font-display text-lg text-primary">{formatInt(snap.credits)} CR</p>
         <div className="sb-garage-stats">
           <Stat label="Range" value={km(stats.range)} frac={frac(stats.range, (s) => s.range)} />
@@ -386,24 +386,27 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
           <Stat label="Life support" value={formatClock(stats.life)} icon={<Timer className="size-4" />} frac={frac(stats.life, (s) => s.life)} />
         </div>
         <p className="sb-hide-short text-xs text-muted">Drag the ship to rotate. Scroll to zoom. Nav upgrades add 5% range per level.</p>
-        {owned ? (
-          <Cmd tone="accent" onClick={() => act((e) => e.selectShip(ship.id))}>
-            {snap.selected === ship.id ? "On the pad" : "Select ship"} <Rocket className="size-5" />
-          </Cmd>
-        ) : unlocked ? (
-          <Cmd tone="accent" onClick={() => act((e) => e.buy(ship.id))}>
-            Buy {formatInt(ship.price)} CR
-          </Cmd>
-        ) : (
-          <Cmd onClick={() => act((e) => e.buy(ship.id))}>
-            Locked · {MISSIONS.find((m) => m.id === ship.unlock)?.name ?? "Mission"}
-          </Cmd>
-        )}
-        {owned && snap.selected !== ship.id && (
-          <Cmd onClick={() => act((e) => e.sell(ship.id))}>Sell for {formatInt(Math.round(ship.price * 0.5))} CR</Cmd>
-        )}
+        {/* panels-compact-v1: chhoti landscape screen par Select/Buy aur Sell ek line mein */}
+        <div className="sb-garage-actions grid gap-2">
+          {owned ? (
+            <Cmd tone="accent" onClick={() => act((e) => e.selectShip(ship.id))}>
+              {snap.selected === ship.id ? "On the pad" : "Select ship"} <Rocket className="size-5" />
+            </Cmd>
+          ) : unlocked ? (
+            <Cmd tone="accent" onClick={() => act((e) => e.buy(ship.id))}>
+              Buy {formatInt(ship.price)} CR
+            </Cmd>
+          ) : (
+            <Cmd onClick={() => act((e) => e.buy(ship.id))}>
+              Locked · {MISSIONS.find((m) => m.id === ship.unlock)?.name ?? "Mission"}
+            </Cmd>
+          )}
+          {owned && snap.selected !== ship.id && (
+            <Cmd onClick={() => act((e) => e.sell(ship.id))}>Sell for {formatInt(Math.round(ship.price * 0.5))} CR</Cmd>
+          )}
+        </div>
         {owned && (
-          <div className="grid gap-2">
+          <div className="sb-garage-ups grid gap-2">
             <UpgradeRow slot="engine" label="Engine" level={up.engine} ship={ship.id} credits={snap.credits} act={act} />
             <UpgradeRow slot="tank" label="Fuel tank" level={up.tank} ship={ship.id} credits={snap.credits} act={act} />
             <UpgradeRow slot="nav" label="Navigation" level={up.nav} ship={ship.id} credits={snap.credits} act={act} />
@@ -578,19 +581,41 @@ function DestRow({
   );
 }
 
+function Toggle({ label, on, onClick }: { label: React.ReactNode; on: boolean; onClick: () => void }) {
+  // panels-compact-v1: settings ka on/off button. Lambi line ki jagah chhota label + ON/OFF pill.
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      className="sb-toggle flex min-h-11 items-center justify-between gap-2 border border-line px-3 text-left"
+      onClick={onClick}
+    >
+      <span className="flex min-w-0 items-center gap-2">{label}</span>
+      <span
+        className={
+          "sb-pill shrink-0 border px-2 font-display text-sm uppercase " + (on ? "border-primary text-primary" : "border-line text-muted")
+        }
+      >
+        {on ? "On" : "Off"}
+      </span>
+    </button>
+  );
+}
+
 function SettingsPanel({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => void }) {
   const s = snap.settings;
   return (
     <div className="flex h-full justify-end">
       <Panel cls="sb-panel-wide sb-settings sb-pane">
-        <div className="flex items-center justify-between">
+        <div className="sb-head flex items-center justify-between">
           <h2 className="font-display text-4xl uppercase">Settings</h2>
           <button type="button" className="min-h-11 min-w-11 border border-line px-3" onClick={() => act((e) => e.back())}>
             <X className="size-5" />
           </button>
         </div>
         <label className="grid gap-2 text-sm text-muted">
-          Master volume
+          Master volume {Math.round(s.volume * 100)}%
           <input
             type="range"
             min={0}
@@ -600,51 +625,22 @@ function SettingsPanel({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) =>
             onChange={(e) => act((en) => en.setSettings({ volume: Number(e.target.value) }))}
           />
         </label>
-        <button
-          type="button"
-          className="flex min-h-11 items-center justify-between border border-line px-3"
+        <Toggle
+          label={
+            <>
+              {s.muted ? <VolumeX className="size-5 shrink-0" /> : <Volume2 className="size-5 shrink-0" />} Sound
+            </>
+          }
+          on={!s.muted}
           onClick={() => act((e) => e.setSettings({ muted: !s.muted }))}
-        >
-          {s.muted ? "Muted" : "Sound on"}
-          {s.muted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}
-        </button>
-        <button
-          type="button"
-          className="min-h-11 border border-line px-3 text-left"
-          onClick={() => act((e) => e.setSettings({ ambient: !s.ambient }))}
-        >
-          Ambient drone {s.ambient ? "on" : "off"}
-        </button>
-        <button
-          type="button"
-          className="min-h-11 border border-line px-3 text-left"
-          onClick={() => act((e) => e.setSettings({ assist: !s.assist }))}
-        >
-          Landing assist {s.assist ? "on" : "off"}
-        </button>
-        <button
-          type="button"
-          className="min-h-11 border border-line px-3 text-left"
-          onClick={() => act((e) => e.setSettings({ leftHanded: !s.leftHanded }))}
-        >
-          Left-handed controls {s.leftHanded ? "on" : "off"}
-        </button>
-        <button
-          type="button"
-          className="min-h-11 border border-line px-3 text-left"
-          onClick={() => act((e) => e.setSettings({ haptics: !s.haptics }))}
-        >
-          Haptics {s.haptics ? "on" : "off"}
-        </button>
-        <button
-          type="button"
-          className="min-h-11 border border-line px-3 text-left"
-          onClick={() => act((e) => e.setSettings({ camLock: !s.camLock }))}
-        >
-          Free camera lock {s.camLock ? "on (stays where you leave it)" : "off (recenters on release)"}
-        </button>
+        />
+        <Toggle label="Ambient drone" on={s.ambient} onClick={() => act((e) => e.setSettings({ ambient: !s.ambient }))} />
+        <Toggle label="Landing assist" on={s.assist} onClick={() => act((e) => e.setSettings({ assist: !s.assist }))} />
+        <Toggle label="Left-handed" on={s.leftHanded} onClick={() => act((e) => e.setSettings({ leftHanded: !s.leftHanded }))} />
+        <Toggle label="Haptics" on={s.haptics} onClick={() => act((e) => e.setSettings({ haptics: !s.haptics }))} />
+        <Toggle label="Camera lock" on={s.camLock} onClick={() => act((e) => e.setSettings({ camLock: !s.camLock }))} />
         <label className="grid gap-2 text-sm text-muted">
-          Free camera sensitivity {Math.round(s.lookSens * 100)}%
+          Free camera speed {Math.round(s.lookSens * 100)}%
           <input
             type="range"
             min={0.5}
@@ -665,9 +661,6 @@ function SettingsPanel({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) =>
             onChange={(e) => act((en) => en.setSettings({ touchScale: Number(e.target.value) }))}
           />
         </label>
-        <button type="button" className="min-h-11 border border-line px-3 text-left" onClick={() => act((e) => e.replayHints())}>
-          Replay first-time tips
-        </button>
         <label className="grid gap-2 text-sm text-muted">
           Look sensitivity
           <input
@@ -679,34 +672,42 @@ function SettingsPanel({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) =>
             onChange={(e) => act((en) => en.setSettings({ sens: Number(e.target.value) }))}
           />
         </label>
-        <div className="grid grid-cols-3 gap-2">
-          {(["low", "medium", "high"] as const).map((q) => (
-            <button
-              key={q}
-              type="button"
-              className={
-                s.quality === q
-                  ? "min-h-11 border border-primary font-display uppercase"
-                  : "min-h-11 border border-line font-display uppercase"
-              }
-              onClick={() => act((e) => e.setSettings({ quality: q }))}
-            >
-              {q}
-            </button>
-          ))}
+        <button type="button" className="min-h-11 border border-line px-3 text-left" onClick={() => act((e) => e.replayHints())}>
+          Replay first-time tips
+        </button>
+        <div className="sb-quality grid gap-1">
+          <p className="text-sm text-muted">Graphics (low = smoother on phones)</p>
+          <div className="grid grid-cols-3 gap-2">
+            {(["low", "medium", "high"] as const).map((q) => (
+              <button
+                key={q}
+                type="button"
+                className={
+                  s.quality === q
+                    ? "min-h-11 border border-primary font-display uppercase"
+                    : "min-h-11 border border-line font-display uppercase"
+                }
+                onClick={() => act((e) => e.setSettings({ quality: q }))}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
         </div>
         {snap.confirmReset ? (
-          <>
-            <p className="text-sm text-accent">This wipes credits, ships, and missions on this browser.</p>
+          <div className="sb-reset grid gap-2">
+            <p className="text-sm text-accent">This wipes credits, ships, and missions on this device.</p>
             <Cmd tone="accent" onClick={() => act((e) => e.resetProgress())}>
               Confirm reset <RotateCcw className="size-5" />
             </Cmd>
             <Cmd onClick={() => act((e) => e.cancelReset())}>Cancel</Cmd>
-          </>
+          </div>
         ) : (
-          <Cmd onClick={() => act((e) => e.requestReset())}>
-            Reset progress <RotateCcw className="size-5" />
-          </Cmd>
+          <div className="grid">
+            <Cmd onClick={() => act((e) => e.requestReset())}>
+              Reset progress <RotateCcw className="size-5" />
+            </Cmd>
+          </div>
         )}
       </Panel>
     </div>
@@ -716,22 +717,24 @@ function SettingsPanel({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) =>
 function Credits({ act }: { act: (fn: (e: Spacebound) => void) => void }) {
   return (
     <div className="flex h-full">
-      <Panel cls="sb-panel-wide">
-        <div className="flex items-center justify-between">
+      <Panel cls="sb-panel-wide sb-credits">
+        <div className="sb-head flex items-center justify-between">
           <h2 className="font-display text-4xl uppercase">Credits</h2>
           <button type="button" className="min-h-11 min-w-11 border border-line px-3" onClick={() => act((e) => e.back())}>
             <X className="size-5" />
           </button>
         </div>
-        <p className="text-sm leading-relaxed text-muted">
-          SPACEBOUND: BEYOND EARTH is an original flight sim. Northline Launch Complex and the Vesper fleet are
-          fictional. The scale of the solar system is compressed on purpose so you can fly, land, and walk the
-          surface in one sitting. Nothing here is a physical ephemeris.
-        </p>
-        <p className="text-sm leading-relaxed text-muted">
-          Ships unlock as you finish missions. Credits buy hulls, fuel, and upgrades. A ship that is short on
-          range cannot be pointed at a farther world, no matter how the chart is spun.
-        </p>
+        <div className="sb-credits-body grid gap-4">
+          <p className="text-sm leading-relaxed text-muted">
+            SPACEBOUND: BEYOND EARTH is an original flight sim. Northline Launch Complex and the Vesper fleet are
+            fictional. The scale of the solar system is compressed on purpose so you can fly, land, and walk the
+            surface in one sitting. Nothing here is a physical ephemeris.
+          </p>
+          <p className="text-sm leading-relaxed text-muted">
+            Ships unlock as you finish missions. Credits buy hulls, fuel, and upgrades. A ship that is short on
+            range cannot be pointed at a farther world, no matter how the chart is spun.
+          </p>
+        </div>
         <Cmd onClick={() => act((e) => e.back())}>Return</Cmd>
       </Panel>
     </div>

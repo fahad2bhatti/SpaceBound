@@ -294,3 +294,8 @@
     background: color-mix(in srgb, var(--color-bg) 92%, transparent);
   }
 }
+
+/* welcome-gate-v1 */
+@keyframes sb-fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.sb-fade { animation: sb-fade-in 0.7s ease both; }
+.sb-select { color-scheme: dark; background: var(--color-surface); border: 1px solid var(--color-line); color: var(--color-fg); min-height: 2.75rem; padding: 0 0.5rem; font-size: 1rem; }

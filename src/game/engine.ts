@@ -48,7 +48,8 @@ import { shareResult, shareText } from "./share";
 import { ContractManager } from "./contracts/manager";
 import type { ContractResult, ContractsSnap, SpotView, WorldProbe } from "./contracts/types";
 import { KIND_LABEL, PLANETS, ZONE_COLORS, type ZoneDef, type ZoneKind } from "./planets";
-import { defaultSave, loadSave, writeSave, type Quality, type SaveData, type Settings } from "./save";
+import { defaultSave, loadSave, writeSave, type AgeGroup, type Quality, type SaveData, type Settings } from "./save";
+import { TERMS_VERSION } from "./terms"; // welcome-gate-v1
 
 export type Screen = "menu" | "garage" | "missions" | "solar" | "settings" | "credits" | "play" | "pause";
 export type Phase =
@@ -84,6 +85,9 @@ export type Snap = {
   chartSun: boolean;
   settings: Settings;
   confirmNew: boolean;
+  /** welcome-gate-v1: true jab tak player age bata kar terms accept na kare. */
+  gate: boolean;
+  ageGroup: AgeGroup | null;
   confirmReset: boolean;
   modal: Modal | null;
   countdown: number | null;
@@ -483,6 +487,22 @@ export class Spacebound {
     if (window.__controlsTest) delete window.__controlsTest;
   }
 
+  /** welcome-gate-v1: age group sirf ek baar set hota hai (wapas ja kar badal nahi sakte). */
+  setAgeGroup(g: AgeGroup): void {
+    if (this.save.profile.ageGroup) return;
+    this.save.profile.ageGroup = g;
+    this.persist(true);
+    this.notifyNow = true;
+  }
+
+  acceptTerms(): void {
+    if (!this.save.profile.ageGroup) return;
+    this.save.profile.termsVersion = TERMS_VERSION;
+    this.save.profile.acceptedAt = Date.now();
+    this.persist(true);
+    this.notifyNow = true;
+  }
+
   getSnap(): Snap {
     const stats = this.stats();
     const mission = activeMission(this.save.done);
@@ -506,6 +526,8 @@ export class Spacebound {
       chartSun: this.chartSun,
       settings: this.save.settings,
       confirmNew: this.confirmNew,
+      gate: this.save.profile.termsVersion < TERMS_VERSION,
+      ageGroup: this.save.profile.ageGroup,
       confirmReset: this.confirmReset,
       modal: this.modalQ[0] ?? null,
       countdown:
@@ -572,9 +594,11 @@ export class Spacebound {
   newGame(): void {
     const settings = { ...this.save.settings };
     const hints = [...this.save.hints];
+    const profile = { ...this.save.profile }; // welcome-gate-v1: new game par age/terms dobara na puchho
     this.save = defaultSave();
     this.save.settings = settings;
     this.save.hints = hints;
+    this.save.profile = profile;
     this.save.started = true;
     this.contracts.bind(this.save.contracts);
     this.confirmNew = false;
@@ -720,9 +744,11 @@ export class Spacebound {
   resetProgress(): void {
     const settings = { ...this.save.settings };
     const hints = [...this.save.hints];
+    const profile = { ...this.save.profile };
     this.save = defaultSave();
     this.save.settings = settings;
     this.save.hints = hints;
+    this.save.profile = profile;
     this.contracts.bind(this.save.contracts);
     this.confirmReset = false;
     this.modalQ = [];

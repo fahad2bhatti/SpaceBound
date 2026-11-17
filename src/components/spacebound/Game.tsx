@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Welcome } from "./Welcome"; // welcome-gate-v1
 import {
   Award,
   Compass,
@@ -179,7 +180,8 @@ export function Game() {
             <p className="max-w-md border border-line bg-surface p-4 text-sm">{snap.fault}</p>
           </div>
         )}
-        {snap && snap.screen === "menu" && <Menu snap={snap} act={act} />}
+        {snap && snap.gate && <Welcome snap={snap} act={act} />}
+        {snap && snap.screen === "menu" && !snap.gate && <Menu snap={snap} act={act} />}
         {snap && snap.screen === "garage" && <Garage snap={snap} act={act} />}
         {snap && snap.screen === "missions" && <MissionsScreen snap={snap} act={act} />}
         {snap && snap.screen === "solar" && <Solar snap={snap} act={act} />}

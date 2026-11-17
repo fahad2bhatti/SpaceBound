@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { Assets } from "./assets";
+import { Vfx } from "./vfx";
 import {
   activeMission,
   BODIES,
@@ -47,7 +48,8 @@ import { shareResult, shareText } from "./share";
 import { ContractManager } from "./contracts/manager";
 import type { ContractResult, ContractsSnap, SpotView, WorldProbe } from "./contracts/types";
 import { KIND_LABEL, PLANETS, ZONE_COLORS, type ZoneDef, type ZoneKind } from "./planets";
-import { defaultSave, loadSave, writeSave, type Quality, type SaveData, type Settings } from "./save";
+import { defaultSave, loadSave, writeSave, type AgeGroup, type Quality, type SaveData, type Settings } from "./save";
+import { TERMS_VERSION } from "./terms"; // welcome-gate-v1
 
 export type Screen = "menu" | "garage" | "missions" | "solar" | "settings" | "credits" | "play" | "pause";
 export type Phase =
@@ -83,6 +85,9 @@ export type Snap = {
   chartSun: boolean;
   settings: Settings;
   confirmNew: boolean;
+  /** welcome-gate-v1: true jab tak player age bata kar terms accept na kare. */
+  gate: boolean;
+  ageGroup: AgeGroup | null;
   confirmReset: boolean;
   modal: Modal | null;
   countdown: number | null;
@@ -185,6 +190,17 @@ declare global {
     };
   }
 }
+
+// vfx-polish-v1: zameen ki dhool ka rang har body ke hisab se
+const DUST: Record<string, THREE.Color> = {
+  earth: new THREE.Color(0xb8a98c),
+  moon: new THREE.Color(0x9b9b9e),
+  mars: new THREE.Color(0xb5683c),
+  jupiter: new THREE.Color(0xe2d3bb),
+  saturn: new THREE.Color(0xe8dcb5),
+  uranus: new THREE.Color(0xbfe6ea),
+  neptune: new THREE.Color(0xa9c4ff),
+};
 
 type Puff = { mesh: THREE.Sprite; life: number; max: number; v: THREE.Vector3 };
 
@@ -424,6 +440,7 @@ export class Spacebound {
     );
     this.focusRing.rotation.x = Math.PI / 2;
     this.initPuffs();
+    this.vfx = new Vfx(this.assets.puff, this.save.settings.quality);
     this.cacheBodies();
     this.buildMenu();
     this.buildGarage();
@@ -462,11 +479,28 @@ export class Spacebound {
       if (s) this.disposeScene(s);
     }
     for (const p of this.puffs) (p.mesh.material as THREE.Material).dispose();
+    this.vfx.destroy(); // vfx-polish-v1
     (this.heat.material as THREE.Material).dispose();
     this.heat.geometry.dispose();
     this.assets.dispose();
     this.renderer.dispose();
     if (window.__controlsTest) delete window.__controlsTest;
+  }
+
+  /** welcome-gate-v1: age group sirf ek baar set hota hai (wapas ja kar badal nahi sakte). */
+  setAgeGroup(g: AgeGroup): void {
+    if (this.save.profile.ageGroup) return;
+    this.save.profile.ageGroup = g;
+    this.persist(true);
+    this.notifyNow = true;
+  }
+
+  acceptTerms(): void {
+    if (!this.save.profile.ageGroup) return;
+    this.save.profile.termsVersion = TERMS_VERSION;
+    this.save.profile.acceptedAt = Date.now();
+    this.persist(true);
+    this.notifyNow = true;
   }
 
   getSnap(): Snap {
@@ -492,6 +526,8 @@ export class Spacebound {
       chartSun: this.chartSun,
       settings: this.save.settings,
       confirmNew: this.confirmNew,
+      gate: this.save.profile.termsVersion < TERMS_VERSION,
+      ageGroup: this.save.profile.ageGroup,
       confirmReset: this.confirmReset,
       modal: this.modalQ[0] ?? null,
       countdown:
@@ -558,9 +594,11 @@ export class Spacebound {
   newGame(): void {
     const settings = { ...this.save.settings };
     const hints = [...this.save.hints];
+    const profile = { ...this.save.profile }; // welcome-gate-v1: new game par age/terms dobara na puchho
     this.save = defaultSave();
     this.save.settings = settings;
     this.save.hints = hints;
+    this.save.profile = profile;
     this.save.started = true;
     this.contracts.bind(this.save.contracts);
     this.confirmNew = false;
@@ -706,9 +744,11 @@ export class Spacebound {
   resetProgress(): void {
     const settings = { ...this.save.settings };
     const hints = [...this.save.hints];
+    const profile = { ...this.save.profile };
     this.save = defaultSave();
     this.save.settings = settings;
     this.save.hints = hints;
+    this.save.profile = profile;
     this.contracts.bind(this.save.contracts);
     this.confirmReset = false;
     this.modalQ = [];
@@ -1038,6 +1078,7 @@ export class Spacebound {
   };
 
   private update(dt: number): void {
+    this.frameDt = dt;
     this.menuT += dt;
     if (this.toastT > 0) {
       this.toastT -= dt;
@@ -1693,7 +1734,14 @@ export class Spacebound {
     const rig = this.phase === "countdown" ? this.padRig : this.surfaceRig;
     if (rig) {
       this.glow(rig, this.throttle);
-      if (this.count < 4) this.burst(rig, 8);
+      if (this.count < 4) {
+        this.burst(rig, 8);
+        const L = Math.max(2, rig.half.z * rig.group.scale.x * 2); // vfx-polish-v1
+        this.exhaust(rig, this.vp);
+        this.forward(rig, this.vb).negate();
+        this.vv.set(0, 0, 0);
+        this.vfx.thrust(this.vp, this.vb, this.vv, this.throttle * 0.8, L, dt);
+      }
       this.placeCockpitCamera(rig, dt, 1);
     }
     if (!this.reduce) this.trauma = Math.min(1, (this.trauma ?? 0) + dt * 0.4);
@@ -1701,6 +1749,14 @@ export class Spacebound {
   }
 
   private trauma = 0;
+  // vfx-polish-v1
+  private vfx!: Vfx;
+  private frameDt = 0.016;
+  private readonly vp = new THREE.Vector3();
+  private readonly vb = new THREE.Vector3();
+  private readonly vg = new THREE.Vector3();
+  private readonly vu = new THREE.Vector3();
+  private readonly vv = new THREE.Vector3();
 
   private beginLiftoff(): void {
     const surface = this.phase === "surfaceCountdown";
@@ -1731,6 +1787,14 @@ export class Spacebound {
     if (upright) rig.group.quaternion.setFromAxisAngle(WORLD_X, -Math.min(0.5, this.liftY * 0.004)).multiply(UPRIGHT_Q);
     this.glow(rig, 1);
     this.burst(rig, upright ? 28 : 16);
+    {
+      // vfx-polish-v1: liftoff par asli aag ki lakeer
+      const L = Math.max(2, rig.half.z * rig.group.scale.x * 2);
+      this.exhaust(rig, this.vp);
+      this.forward(rig, this.vb).negate();
+      this.vv.set(0, this.liftV, 0);
+      this.vfx.thrust(this.vp, this.vb, this.vv, 1, L, dt);
+    }
     this.audio.setThrottle(1);
     if (!this.reduce) this.trauma = Math.min(1, this.trauma + dt);
     const back = upright
@@ -1911,6 +1975,32 @@ export class Spacebound {
     rig.group.quaternion.normalize();
     this.glow(rig, locked ? 0 : this.throttle);
     this.heat.position.copy(this.flightPos);
+    // vfx-polish-v1: thruster lakeer, re-entry plasma, zameen ki dhool, speed dust, sitaron ki jhilmil
+    {
+      const L = Math.max(2, rig.half.z * rig.group.scale.x * 2);
+      const thr = locked ? 0 : this.throttle;
+      this.exhaust(rig, this.vp);
+      this.forward(rig, this.vb).negate();
+      this.vfx.thrust(this.vp, this.vb, this.flightV, thr, L, dt);
+      if (dens > 0) {
+        const heatI = (this.heat.material as THREE.MeshBasicMaterial).opacity / 0.7;
+        this.forward(rig, this.vb);
+        this.vp.copy(rig.group.position).addScaledVector(this.vb, L * 0.35);
+        this.vfx.reentry(this.vp, this.flightV, heatI, L, dt);
+      } else if (!this.reduce) {
+        this.vfx.spaceDust(this.flightPos, this.flightV.length(), L, dt);
+      }
+      const near = 1 - Math.max(0, alt) / (L * 2.5 + 10);
+      if (near > 0 && thr > 0.12) {
+        this.outward(this.flightPos, body, this.vu);
+        this.vg.copy(this.flightPos).addScaledVector(this.vu, -Math.max(0, alt) + 0.2);
+        this.vfx.dust(this.vg, this.vu, near * thr, L, DUST[body] ?? DUST.earth, dt);
+      }
+      if (this.flightStars) {
+        const sm = this.flightStars.material as THREE.PointsMaterial;
+        sm.size = 1.4 * (1 + 0.07 * Math.sin(this.menuT * 1.9) + Math.min(1, this.flightV.length() / Math.max(1, cap)) * 0.35);
+      }
+    }
     if (alt < 8 && this.throttle > 0.35 && body === "earth") this.burst(rig, 6);
     this.audio.setThrottle(locked ? 0 : this.throttle);
     this.updateSunHazard(dt);
@@ -2122,6 +2212,10 @@ export class Spacebound {
     const maxD = zone ? zone.z.maxDescent : FREE_LAND.maxDescent;
     const maxH = zone ? zone.z.maxDrift : FREE_LAND.maxDrift;
     if (descent > 9 || horiz > 8) {
+      // vfx-polish-v1: crash dhamaka + bhaari shake
+      const crig = this.ensureFlightRig();
+      this.vfx.explosion(this.flightPos, Math.max(2, crig.half.z * crig.group.scale.x * 2));
+      if (!this.reduce) this.trauma = 1;
       this.v2.copy(up);
       this.flightPos.copy(center).addScaledVector(this.v2, def.radius + 14);
       this.flightV.copy(this.v2).multiplyScalar(2.2);
@@ -2142,6 +2236,7 @@ export class Spacebound {
       const tiltDeg = THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(shipUp.dot(up), -1, 1)));
       const centerFrac = zone ? zone.arc / (zone.z.radius * (this.save.settings.assist ? 1.5 : 1)) : null;
       this.audio.thud();
+      if (!this.reduce) this.trauma = Math.max(this.trauma, 0.5); // vfx-polish-v1
       this.audio.setThrottle(0);
       this.throttle = 0;
       this.save.stats.landings += 1;
@@ -2353,7 +2448,9 @@ export class Spacebound {
     const s = this.trauma * this.trauma;
     this.camera.position.x += (Math.random() - 0.5) * s * 0.35;
     this.camera.position.y += (Math.random() - 0.5) * s * 0.35;
-    this.trauma = Math.max(0, this.trauma - 0.8 * 0.016);
+    // vfx-polish-v1: halka roll + decay ab frame-rate par nirbhar nahi (dt se)
+    this.camera.rotateZ((Math.random() - 0.5) * s * 0.05);
+    this.trauma = Math.max(0, this.trauma - 0.8 * this.frameDt);
   }
 
   private forward(rig: ShipRig, out: THREE.Vector3): THREE.Vector3 {
@@ -3395,6 +3492,7 @@ export class Spacebound {
       if (core) core.rotation.y += dt * 0.01;
     }
     this.updatePuffs(dt);
+    this.vfx.update(dt);
     this.updateBeaconScales();
   }
 
@@ -3434,6 +3532,11 @@ export class Spacebound {
   private attachPuffs(scene: THREE.Scene): void {
     this.puffGroup.removeFromParent();
     scene.add(this.puffGroup);
+    if (this.vfx) {
+      this.vfx.clear(); // vfx-polish-v1: scene badli to purane particles ki positions galat hongi
+      this.vfx.group.removeFromParent();
+      scene.add(this.vfx.group);
+    }
   }
 
   private emitPuff(origin: THREE.Vector3, upward: number): void {
@@ -3796,6 +3899,7 @@ export class Spacebound {
     const q: Quality = this.save.settings.quality;
     const dpr = q === "high" ? Math.min(window.devicePixelRatio || 1, 1.75) : q === "medium" ? Math.min(window.devicePixelRatio || 1, 1.35) : 1;
     this.renderer.setPixelRatio(dpr);
+    this.vfx?.setQuality(q); // vfx-polish-v1
     this.renderer.shadowMap.enabled = q !== "low";
     this.resize();
   }

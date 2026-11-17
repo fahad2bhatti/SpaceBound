@@ -13,6 +13,12 @@ import type { LandingBest, LandingBests } from "./landing";
 
 export type Quality = "low" | "medium" | "high";
 
+// welcome-gate-v1
+export type AgeGroup = "child" | "teen" | "adult";
+
+/** Sirf age group (DOB nahi) aur terms ka version jo accept hua. */
+export type Profile = { ageGroup: AgeGroup | null; termsVersion: number; acceptedAt: number };
+
 export type Settings = {
   muted: boolean;
   volume: number;
@@ -81,6 +87,8 @@ export type SaveData = {
   /** landing-stars-v1: earned badges, e.g. "perfect-landing". */
   badges: string[];
   resume: Resume | null;
+  /** welcome-gate-v1 */
+  profile: Profile;
 };
 
 const KEY = "spacebound-beyond-earth-v1";
@@ -123,6 +131,7 @@ export function defaultSave(): SaveData {
     best: {},
     badges: [],
     resume: null,
+    profile: { ageGroup: null, termsVersion: 0, acceptedAt: 0 },
   };
 }
 
@@ -221,6 +230,14 @@ export function sanitize(raw: Partial<SaveData>): SaveData {
     best: sanitizeBest(raw.best),
     badges: Array.isArray(raw.badges) ? raw.badges.filter((x): x is string => typeof x === "string") : [],
     resume: raw.resume ?? null,
+    profile: {
+      ageGroup:
+        raw.profile?.ageGroup === "child" || raw.profile?.ageGroup === "teen" || raw.profile?.ageGroup === "adult"
+          ? raw.profile.ageGroup
+          : null,
+      termsVersion: Math.max(0, Math.floor(Number(raw.profile?.termsVersion) || 0)),
+      acceptedAt: Math.max(0, Number(raw.profile?.acceptedAt) || 0),
+    },
   };
 }
 

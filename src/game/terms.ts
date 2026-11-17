@@ -5,7 +5,7 @@ import type { AgeGroup } from "./save";
 export const TERMS_VERSION = 1;
 
 /** Apna contact email yahan likho (khali ho to terms mein contact line nahi dikhti). */
-export const CONTACT_EMAIL = "";
+export const CONTACT_EMAIL = "fahadsaeed2622@gmail.com";
 
 export const TERMS_SECTIONS: { title: string; body: string }[] = [
   {

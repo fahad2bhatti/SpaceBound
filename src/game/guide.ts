@@ -103,7 +103,7 @@ const STATIC: Record<BodyId, { summary: string; reach: string[]; landing: string
       "Check the Needs line above: the route is 900 su, so a short-range hull will not make it.",
     ],
     landing: [
-      "Hover over the storm bands and ease down slowly. Landing assist only switches on close to the cloud deck.",
+      "Hover over the storm bands and ease down slowly. Strong gravity: keep the nose up and use the main engine. Near the deck the clouds cushion you, so a slow descent always lands.",
       "The flyby beacon must be logged first, or the landing mission will not pay.",
     ],
     onFoot: ["You can step out on the cloud deck with E. Oxygen drains as on any surface, so keep the walk short."],

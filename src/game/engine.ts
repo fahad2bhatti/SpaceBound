@@ -162,6 +162,19 @@ const ASSIST_DESC_MIN = 1.8;
 const ASSIST_DRIFT_MIN = 2.2;
 // land-anywhere-v1: touchdown limits for any spot outside a marked zone (same as the easy zones).
 const FREE_LAND = { maxDescent: 6, maxDrift: 4.8 };
+// gas-easy-v1: gas giant (cloud deck) landing asaan. Narm limits, hard impact mushkil, aur neeche "cloud cushion"
+// jo girti hui ship ko khud dheema karta hai (fuel nahi lagta), taake player bas nose up karke aaram se utar jaye.
+const GAS_LAND = {
+  maxDescent: 8, // soft touchdown limit (solid planets: 6)
+  maxDrift: 6, // (solid: 4.8)
+  crashDescent: 14, // hard impact sirf is se tez par (solid: 9)
+  crashDrift: 11, // (solid: 8)
+  cushionAlt: 14, // is altitude se neeche cloud cushion kaam karta hai
+  cushionMin: 4, // cloud deck par max girne ki speed (maxDescent se kam, to touchdown hamesha narm)
+  cushionSlope: 0.55, // upar jitna, utni zyada speed allowed
+  driftMin: 3, // cloud deck par max sideways drift
+  assistAlt: 25, // landing assist gas giant par is altitude se neeche (pehle 10 tha)
+};
 const BODY_IDS: BodyId[] = ["earth", "moon", "mars", "jupiter", "saturn", "uranus", "neptune"];
 // upright-turn-v1: upright rocket = nose up (rotate -90deg about X); gravity turn tilts it about the WORLD X axis.
 // arrow-pitch-v1: ship ab kabhi ulti nahi hoti. Up/Down arrow pitch is limit tak hi jata hai.
@@ -1968,6 +1981,7 @@ export class Spacebound {
     if (sp2 > cap) this.flightV.multiplyScalar(Math.max(cap / sp2, 1 - dt * 0.85));
     this.updateAtmosphere(dt, body, alt, cap);
     this.applyLandingAssist(dt, body, alt);
+    if (BODIES[body].gas) this.cloudCushion(dt, body, alt);
     this.flightPos.addScaledVector(this.flightV, dt);
     this.flightStars?.position.copy(this.flightPos);
     this.resolveGround(body);
@@ -2087,7 +2101,7 @@ export class Spacebound {
     const rig = this.flightRig;
     if (!rig || !this.save.settings.assist || this.fuel <= 0) return;
     if (alt > ASSIST_ALT || this.sinceLaunch < 8) return;
-    if (BODIES[body].gas && alt > 10) return; // gas-landing-v1: flyby ke waqt dakhal nahi, sirf cloud deck ke qareeb
+    if (BODIES[body].gas && alt > GAS_LAND.assistAlt) return; // gas-landing-v1 / gas-easy-v1: flyby ke waqt dakhal nahi, sirf cloud deck ke qareeb
     const up = this.aUp.copy(this.flightPos).sub(this.bodyPos.get(body)!).normalize();
     const climb = this.flightV.dot(up);
     if (climb > 0.5) return;
@@ -2125,6 +2139,20 @@ export class Spacebound {
       braked = true;
     }
     if (braked) this.fuel = Math.max(0, this.fuel - this.stats().burn * 0.25 * dt);
+  }
+
+  /** gas-easy-v1: gas giant ke cloud deck ke qareeb girti ship ko narmi se rok'ta hai (assist on ho ya off, fuel nahi lagta). */
+  private cloudCushion(dt: number, body: BodyId, alt: number): void {
+    if (alt > GAS_LAND.cushionAlt) return;
+    const up = this.aUp.copy(this.flightPos).sub(this.bodyPos.get(body)!).normalize();
+    const climb = this.flightV.dot(up);
+    if (climb > 0.5) return; // upar ja rahe ho (takeoff): kuch mat karo
+    const maxDown = GAS_LAND.cushionMin + Math.max(0, alt) * GAS_LAND.cushionSlope;
+    if (-climb > maxDown) this.flightV.addScaledVector(up, (-maxDown - climb) * Math.min(1, dt * 6));
+    const hv = this.aHoriz.copy(this.flightV).addScaledVector(up, -this.flightV.dot(up));
+    const hs = hv.length();
+    const maxSide = GAS_LAND.driftMin + Math.max(0, alt) * 0.45;
+    if (hs > maxSide) this.flightV.addScaledVector(hv, -(1 - maxSide / hs) * Math.min(1, dt * 4));
   }
 
   /** Grade + stars + best score for a successful touchdown. Credits: grade bonus (as before) plus the Perfect Landing bonus. */
@@ -2209,9 +2237,9 @@ export class Spacebound {
     // land-anywhere-v1: every spot on a solid planet is landable. A marked zone only tightens the limits (hard zones) and pays its bonus.
     const lz = this.landingZone(body, true);
     const zone = lz && lz.inside ? lz : null;
-    const maxD = zone ? zone.z.maxDescent : FREE_LAND.maxDescent;
-    const maxH = zone ? zone.z.maxDrift : FREE_LAND.maxDrift;
-    if (descent > 9 || horiz > 8) {
+    const maxD = zone ? zone.z.maxDescent : def.gas ? GAS_LAND.maxDescent : FREE_LAND.maxDescent;
+    const maxH = zone ? zone.z.maxDrift : def.gas ? GAS_LAND.maxDrift : FREE_LAND.maxDrift;
+    if (def.gas ? descent > GAS_LAND.crashDescent || horiz > GAS_LAND.crashDrift : descent > 9 || horiz > 8) {
       // vfx-polish-v1: crash dhamaka + bhaari shake
       const crig = this.ensureFlightRig();
       this.vfx.explosion(this.flightPos, Math.max(2, crig.half.z * crig.group.scale.x * 2));
@@ -2655,7 +2683,10 @@ export class Spacebound {
         this.atmoBody = body;
         this.scanT = 1.2;
         if (this.sinceLaunch > 2.5) {
-          this.toast("Entering " + BODIES[body].name + " " + cfg.label);
+          // gas-easy-v1: gas giant par pehli baar andar aate hi chhota sa tip
+          this.toast(
+            "Entering " + BODIES[body].name + " " + cfg.label + (BODIES[body].gas ? ". Nose up and ease down, the clouds cushion you." : ""),
+          );
           this.audio.ui();
           haptic.tap();
         }

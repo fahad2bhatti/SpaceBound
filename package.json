@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "android:aab": "node scripts/check-release.mjs && npm run build && npx cap sync android && cd android && ./gradlew bundleRelease",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"

@@ -154,6 +154,9 @@ export function Store({ snap, act }: { snap: Snap; act: Act }) {
         {snap.store.mode === "test" && (
           <p className="border border-accent px-3 py-1.5 text-xs text-accent">TEST MODE: purchases are free and nothing is charged. Testing only.</p>
         )}
+        {snap.store.mode === "play" && Object.keys(snap.store.prices).length === 0 && (
+          <p className="border border-line px-3 py-1.5 text-xs text-muted">Connecting to Google Play... If prices do not load, check your connection and that the game was installed from Google Play.</p>
+        )}
         <div className="flex gap-2">
           {tabBtn("deals", "Deals")}
           {tabBtn("nova", "Nova")}

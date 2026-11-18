@@ -49,7 +49,7 @@ import { ContractManager } from "./contracts/manager";
 import type { ContractResult, ContractsSnap, SpotView, WorldProbe } from "./contracts/types";
 import { KIND_LABEL, PLANETS, ZONE_COLORS, type ZoneDef, type ZoneKind } from "./planets";
 import { defaultSave, keepPaid, loadSave, writeSave, type AgeGroup, type Quality, type SaveData, type Settings } from "./save";
-import { billing } from "./billing"; // store-v1
+import { billing, type Paid } from "./billing"; // store-v1 / billing-v1
 import { adsRemoved, buyShipWithNova, grantProduct, PRODUCT, storeAllowed } from "./store"; // store-v1
 import { TERMS_VERSION } from "./terms"; // welcome-gate-v1
 
@@ -431,6 +431,7 @@ export class Spacebound {
     this.save = loadSave();
     this.contracts.bind(this.save.contracts);
     this.inspect = this.save.selected;
+    setTimeout(() => void this.recoverPurchases(), 1500); // billing-v1: adhoori purchases (thoda ruk kar, pehle game khul jaye)
     this.chartFocus = this.save.destination;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -840,6 +841,46 @@ export class Spacebound {
     }
   }
 
+  /**
+   * billing-v1: Google ki confirmed purchase player ko do. Pehle item SAVE, phir Google ko finish.
+   * Ek order ID do dafa aaye (listener + recovery) to grantProduct dobara kuch nahi deta, finish phir bhi chalta hai.
+   */
+  private async deliver(p: Paid, restoring = false): Promise<string | null> {
+    const text = grantProduct(this.save, p.productId, p.orderId, restoring);
+    this.persist(true);
+    try {
+      await billing.finish(p);
+    } catch {
+      /* agli game start par unfinished() se dobara finish hoga */
+    }
+    this.notifyNow = true;
+    return text;
+  }
+
+  /** billing-v1: game start par adhoori purchases (crash, pending payment) poori karo. Engine banne ke baad ek dafa. */
+  private async recoverPurchases(): Promise<void> {
+    if (billing.mode !== "play") return;
+    billing.onPurchase((p) => {
+      void this.deliver(p).then((t) => {
+        if (t) {
+          haptic.success();
+          this.toast(t);
+        }
+      });
+    });
+    try {
+      const open = await billing.unfinished();
+      const lines: string[] = [];
+      for (const p of open) {
+        const t = await this.deliver(p);
+        if (t) lines.push(t);
+      }
+      if (lines.length) this.toast(lines.join(" "));
+    } catch {
+      /* Play abhi nahi mila (offline): agli dafa */
+    }
+  }
+
   /** Asli paise wala product (Nova pack ya deal) khareedo. */
   async storeBuy(productId: string): Promise<void> {
     const p = PRODUCT[productId];
@@ -854,12 +895,17 @@ export class Spacebound {
     try {
       const r = await billing.buy(productId);
       if (r.status === "ok") {
-        const text = grantProduct(this.save, r.productId, r.orderId);
-        this.persist(true);
+        const text = await this.deliver(r.purchase);
         haptic.success();
         this.toast(text ?? "Purchase complete.");
+      } else if (r.status === "pending") {
+        this.toast("Payment pending. Your item arrives as soon as Google Play confirms it.");
+      } else if (r.status === "owned") {
+        this.storeBusy = null;
+        await this.restorePurchases();
+        return;
       } else if (r.status === "error") {
-        this.toast("Purchase failed: " + r.message);
+        this.toast(r.message);
       }
     } catch {
       this.toast("Purchase failed. Please try again.");
@@ -889,9 +935,13 @@ export class Spacebound {
     this.notifyNow = true;
     try {
       const owned = await billing.restore();
-      const lines = owned.map((o) => grantProduct(this.save, o.productId, o.orderId, true)).filter(Boolean);
+      const lines: string[] = [];
+      for (const o of owned) {
+        const t = await this.deliver(o, true);
+        if (t) lines.push(t);
+      }
       this.persist(true);
-      this.toast(lines.length ? (lines as string[]).join(" ") : "Nothing new to restore.");
+      this.toast(lines.length ? lines.join(" ") : "Nothing new to restore.");
     } catch {
       this.toast("Could not reach Google Play. Try again later.");
     } finally {

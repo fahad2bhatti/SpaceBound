@@ -337,6 +337,8 @@ export class Spacebound {
   private liftV = 0;
   private sinceLaunch = 0;
   private orbitHold = 0;
+  /** playtest-v1: pichle bounce ki speed. Bounce ke baad wali landing isi speed se grade hoti hai (warna bounce = S grade). */
+  private bounceDescent = 0;
   private orbitPaid = false;
   private stationPaid = false;
   private inside = new Set<string>();
@@ -550,9 +552,15 @@ export class Spacebound {
       fuelMax: stats.fuel,
       life: this.life,
       ox: this.ox,
-      altitude: this.phase === "flight" ? this.altitude() : this.liftY,
-      speed: this.phase === "flight" ? this.velLen() : Math.abs(this.walker.speed),
-      climb: this.phase === "flight" ? this.climbRate() : this.liftV,
+      // playtest-v1: liftoff ke waqt liftY scene ka unit hai; flight ke unit mein badlo, warna ALT 3,500 km dikha kar 96 km par gir jaata tha
+      altitude: this.phase === "flight" ? this.altitude() : this.liftY * this.liftToFlight(),
+      speed:
+        this.phase === "flight"
+          ? this.velLen()
+          : this.liftToFlight() !== 1
+            ? Math.abs(this.liftV) * this.liftToFlight()
+            : Math.abs(this.walker.speed),
+      climb: this.phase === "flight" ? this.climbRate() : this.liftV * this.liftToFlight(),
       throttle: this.throttle,
       destDist: this.phase === "flight" ? this.pos().distanceTo(this.targetPoint(this.v5)) : 0,
       objective: mission ? mission.name : "Catalog complete",
@@ -1944,7 +1952,12 @@ export class Spacebound {
     if (locked && !this.rangeLockToast) {
       this.rangeLockToast = true;
       this.audio.alarm();
-      this.toast("Beyond certified range. Thrust cut. Esc → abort to Earth orbit.");
+      // playtest-v1: phone par Esc key nahi hoti
+      this.toast(
+        matchMedia("(pointer: coarse)").matches
+          ? "Beyond certified range. Thrust cut. Pause → Abort to Earth orbit."
+          : "Beyond certified range. Thrust cut. Esc → abort to Earth orbit.",
+      );
     }
     if (!locked) this.rangeLockToast = false;
     const rcs = this.input.held("Space") || this.input.touch.rcsUp;
@@ -2166,6 +2179,8 @@ export class Spacebound {
     zone: LandingZone | null,
   ): LandingResult {
     const assisted = this.save.settings.assist;
+    descent = Math.max(descent, this.bounceDescent); // playtest-v1: bounce wali landing ko bounce ki speed se grade karo
+    this.bounceDescent = 0;
     const { grade, bonus } = gradeLanding(descent, drift, fuelFrac, assisted, body);
     const rated = rateLanding({ descent, drift, tiltDeg, centerFrac, fuelFrac, assisted });
     const perfectBonus = rated.perfect ? LANDING_CFG.perfect.bonus : 0;
@@ -2229,9 +2244,15 @@ export class Spacebound {
     const def = BODIES[body];
     const center = this.bodyPos.get(body)!;
     const alt = this.flightPos.distanceTo(center) - def.radius;
-    if (alt > 1.15) return;
+    if (alt > 1.15) {
+      if (alt > 8) this.bounceDescent = 0; // bounce ke baad door chale gaye: naya approach
+      return;
+    }
     const up = this.v4.copy(this.flightPos).sub(center).normalize();
     const climb = this.flightV.dot(up);
+    // playtest-v1: zameen se door ja rahe ho (bounce ke baad ya takeoff): yeh landing nahi hai.
+    // Pehle bounce ke agle frame mein "descent 0" wali perfect S landing ban jaati thi.
+    if (climb > 0.3) return;
     const descent = -climb;
     const horiz = this.v5.copy(this.flightV).addScaledVector(up, -climb).length();
     // land-anywhere-v1: every spot on a solid planet is landable. A marked zone only tightens the limits (hard zones) and pays its bonus.
@@ -2297,11 +2318,20 @@ export class Spacebound {
       return;
     }
     // bounce: straight up from where we hit
-    this.flightPos.copy(center).addScaledVector(up, def.radius + 1.05);
+    this.bounceDescent = Math.max(this.bounceDescent, descent);
+    this.flightPos.copy(center).addScaledVector(up, def.radius + 1.4); // playtest-v1: 1.15 ki touchdown line se upar
     this.flightV.addScaledVector(up, descent + 1.5);
     this.flightV.multiplyScalar(0.45);
     haptic.warn();
     this.toast("Too fast. Hover and bleed speed before touchdown.");
+  }
+
+  /** playtest-v1: liftoff ki height (liftY) ko flight altitude mein badalne ka factor. Handoff par flight 2.4 se shuru hoti hai. */
+  private liftToFlight(): number {
+    if (this.phase !== "liftoff" && this.phase !== "surfaceLiftoff") return 1;
+    const surface = this.phase === "surfaceLiftoff";
+    const upright = !surface && !!this.ensureFlightRig().group.userData.upright;
+    return 2.4 / (surface ? 28 : upright ? 130 : 36);
   }
 
   private trackMissions(dt: number): void {

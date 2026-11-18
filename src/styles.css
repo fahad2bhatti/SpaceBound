@@ -389,5 +389,10 @@
   /* Toast (2 line) aur tip ek doosre ke upar na aayein */
   main:has(.sb-toast) .sb-tip { top: 7.4rem; }
   /* "Mars Atmosphere" label tip box ke neeche na chhupe */
-  .sb-atmo-tag { bottom: 6.1rem; }
+  .sb-atmo-tag { bottom: 7.2rem; }
+  /* Cockpit: joystick chhupa hai, to "E Exit hatch" neeche left mein, preflight panel ke upar nahi */
+  main:has(.sb-preflight) .sb-prompt { left: 0.75rem; bottom: 0.75rem; translate: none; transform: none; max-width: 10rem; }
 }
+
+/* playtest-v1: landing report card ke peeche toast ke tukde nazar aate the; card khuli ho to toast chhupao */
+main:has(.sb-landing) .sb-toast { display: none; }

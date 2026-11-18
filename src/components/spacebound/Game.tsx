@@ -813,7 +813,7 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
       <div className="absolute right-4 top-4 border border-line bg-bg/80 p-3 text-right backdrop-blur-md sm:right-6 sm:top-6 sb-dest">
         <p className="font-display text-xs tracking-widest text-primary">{DESTS[snap.destination].name}</p>
         <p className="font-display text-xl">{formatClock(snap.life)} LIFE</p>
-        {flight && <p className="text-xs text-muted">{km(snap.destDist)} to target</p>}
+        {snap.phase === "flight" && <p className="text-xs text-muted">{km(snap.destDist)} to target</p>}
       </div>
       {flight && snap.freeCam && (
         <p className="pointer-events-none absolute left-1/2 top-[8.5rem] -translate-x-1/2 whitespace-nowrap font-display text-xs tracking-widest text-muted">
@@ -872,7 +872,9 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
           {snap.rangeLocked
             ? "RANGE LOCK"
             : snap.braking
-              ? "ENTRY BRAKE"
+              ? snap.climb < 0
+                ? "ENTRY BRAKE"
+                : "SPEED LIMIT"
               : snap.assistActive
                 ? snap.envelope
                   ? "ASSIST · LANDING ENVELOPE"
@@ -1034,6 +1036,8 @@ function CheckBtn({ on, label, onClick }: { on: boolean; label: string; onClick:
 function Touch({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => void }) {
   const flight = snap.phase === "flight";
   const eva = snap.phase === "eva";
+  // playtest-v1: cockpit / countdown / liftoff mein player seat par hai: joystick, JUMP, RUN ka koi kaam nahi
+  const seated = /^(surface)?(cockpit|countdown|liftoff)$/i.test(snap.phase);
   const setStick = (x: number, y: number) => act((e) => e.input.setTouch({ x, y }));
   const scale = snap.settings.touchScale;
   return (
@@ -1054,6 +1058,8 @@ function Touch({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
           <TouchBtn label="▼" hold onHold={(v) => act((e) => e.input.setTouch({ pitchDown: v }))} />
           <TouchBtn label="▶" hold onHold={(v) => act((e) => e.input.setTouch({ x: v ? 1 : 0 }))} />
         </div>
+      ) : seated ? (
+        <span />
       ) : (
         <Stick onChange={setStick} scale={scale} />
       )}
@@ -1082,7 +1088,7 @@ function Touch({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
             <TouchBtn label="RCS+" hold onHold={(v) => act((e) => e.input.setTouch({ rcsUp: v }))} />
             <TouchBtn label="RCS-" hold onHold={(v) => act((e) => e.input.setTouch({ rcsDown: v }))} />
           </>
-        ) : (
+        ) : seated ? null : (
           <>
             <TouchBtn label="JUMP" hold onHold={(v) => act((e) => e.input.setTouch({ jump: v }))} />
             <TouchBtn label="RUN" hold onHold={(v) => act((e) => e.input.setTouch({ run: v }))} />

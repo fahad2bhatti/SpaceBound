@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Welcome } from "./Welcome"; // welcome-gate-v1
 import {
   Award,
+  ShoppingBag,
   Compass,
   Gauge,
   Info,
@@ -44,6 +45,8 @@ import { pickHint } from "@/game/hints";
 import { placeWaypoint } from "@/game/waypoint";
 import { ContractHud, ContractResultView } from "./Contracts";
 import { MissionsScreen } from "./MissionsScreen";
+import { Store, storeStartTab } from "./Store"; // store-v1
+import { novaPrice } from "@/game/store"; // store-v1
 import { SUN_GUIDE } from "@/game/guide";
 import { LandingPanel } from "./Landing";
 // phone-fix-map-v1
@@ -187,6 +190,7 @@ export function Game() {
         {snap && snap.screen === "solar" && <Solar snap={snap} act={act} />}
         {snap && snap.screen === "settings" && <SettingsPanel snap={snap} act={act} />}
         {snap && snap.screen === "credits" && <Credits act={act} />}
+        {snap && snap.screen === "store" && <Store snap={snap} act={act} />}
         {snap && snap.screen === "pause" && <Pause snap={snap} act={act} />}
         {snap && (snap.screen === "play" || snap.screen === "pause") && snap.screen === "play" && (
           <Hud snap={snap} act={act} />
@@ -307,7 +311,10 @@ function Menu({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =>
           Walk the gantry, earn the range, and bring the ship home. Distances are compressed so a transfer
           takes minutes, not months.
         </p>
-        <p className="font-display text-lg text-primary">{formatInt(snap.credits)} CR</p>
+        <p className="font-display text-lg text-primary">
+          {formatInt(snap.credits)} CR
+          {snap.store.allowed && <span className="ml-3 text-accent">◆ {formatInt(snap.store.nova)}</span>}
+        </p>
         {snap.confirmNew ? (
           <>
             <p className="text-sm text-fg">Starting fresh replaces the saved mission.</p>
@@ -341,6 +348,16 @@ function Menu({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =>
           <Cmd onClick={() => act((e) => e.open("garage"))}>
             Spacecraft Garage <Gauge className="size-5" />
           </Cmd>
+          {snap.store.allowed && (
+            <Cmd
+              onClick={() => {
+                storeStartTab("deals");
+                act((e) => e.open("store"));
+              }}
+            >
+              Store <ShoppingBag className="size-5" />
+            </Cmd>
+          )}
           <Cmd onClick={() => act((e) => e.open("missions"))}>
             Missions <Award className="size-5" />
           </Cmd>
@@ -401,16 +418,30 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
             <Cmd tone="accent" onClick={() => act((e) => e.selectShip(ship.id))}>
               {snap.selected === ship.id ? "On the pad" : "Select ship"} <Rocket className="size-5" />
             </Cmd>
+          ) : ship.premium ? (
+            // store-v1: exclusive ship sirf Store se
+            snap.store.allowed ? (
+              <Cmd tone="accent" onClick={() => openStoreShips(act)}>
+                ◆ {formatInt(ship.premium)} · Store
+              </Cmd>
+            ) : (
+              <Cmd onClick={() => act((e) => e.buy(ship.id))}>Store exclusive</Cmd>
+            )
           ) : unlocked ? (
             <Cmd tone="accent" onClick={() => act((e) => e.buy(ship.id))}>
               Buy {formatInt(ship.price)} CR
             </Cmd>
           ) : (
-            <Cmd onClick={() => act((e) => e.buy(ship.id))}>
-              Locked · {MISSIONS.find((m) => m.id === ship.unlock)?.name ?? "Mission"}
-            </Cmd>
+            <>
+              <Cmd onClick={() => act((e) => e.buy(ship.id))}>
+                Locked · {MISSIONS.find((m) => m.id === ship.unlock)?.name ?? "Mission"}
+              </Cmd>
+              {snap.store.allowed && novaPrice(ship.id) !== null && (
+                <Cmd onClick={() => openStoreShips(act)}>Unlock now ◆ {formatInt(novaPrice(ship.id) ?? 0)}</Cmd>
+              )}
+            </>
           )}
-          {owned && snap.selected !== ship.id && (
+          {owned && snap.selected !== ship.id && !snap.store.paid.includes(ship.id) && (
             <Cmd onClick={() => act((e) => e.sell(ship.id))}>Sell for {formatInt(Math.round(ship.price * 0.5))} CR</Cmd>
           )}
         </div>
@@ -436,7 +467,14 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
             >
               <span className="block font-display text-lg uppercase leading-tight">{s.name}</span>
               <span className="block text-xs text-muted">
-                {isShipUnlocked(snap.done, s) ? (snap.owned.includes(s.id) ? "Owned" : `${formatInt(s.price)} CR`) : "Locked"} · {km(s.range)}
+                {snap.owned.includes(s.id)
+                  ? "Owned"
+                  : s.premium
+                    ? "Exclusive"
+                    : isShipUnlocked(snap.done, s)
+                      ? `${formatInt(s.price)} CR`
+                      : "Locked"}{" "}
+                · {km(s.range)}
               </span>
             </button>
           ))}
@@ -444,6 +482,12 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
       </div>
     </div>
   );
+}
+
+/** store-v1: Garage se Store ka Ships tab kholo. */
+function openStoreShips(act: (fn: (e: Spacebound) => void) => void): void {
+  storeStartTab("ships");
+  act((e) => e.open("store"));
 }
 
 function UpgradeRow({

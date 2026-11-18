@@ -296,6 +296,60 @@ export function buildShip(id: ShipId, a: Assets): ShipRig {
   }
 
   // ---- new-ships-v1: galaxy-travel class ----
+  // store-v1: Shadow Phantom: kaala stealth delta, narangi spine
+  if (id === "phantom") {
+    const body = new THREE.ConeGeometry(0.75, 4.2, 3);
+    body.rotateX(Math.PI / 2);
+    body.rotateZ(Math.PI);
+    body.scale(1.6, 0.35, 1);
+    g.add(hullMesh(body, m.tile));
+    g.add(hullMesh(new THREE.BoxGeometry(0.12, 0.08, 3.2), m.orange, 0, 0.16, -0.2));
+    const canopy = new THREE.SphereGeometry(0.3, 12, 8);
+    canopy.scale(1, 0.55, 1.8);
+    g.add(hullMesh(canopy, m.glass, 0, 0.2, 0.7));
+    for (const side of [-1, 1]) {
+      const fin = new THREE.BoxGeometry(0.06, 0.65, 0.8);
+      const mesh = hullMesh(fin, m.dark, side * 0.55, 0.3, -1.6);
+      mesh.rotation.z = side * -0.35;
+      g.add(mesh);
+      const bell = new THREE.CylinderGeometry(0.12, 0.24, 0.4, 10);
+      bell.rotateX(Math.PI / 2);
+      g.add(hullMesh(bell, m.dark, side * 0.32, 0, -2.2));
+      const f = flameCone(m.flame);
+      f.scale.setScalar(0.75);
+      f.position.set(side * 0.32, 0, -2.3);
+      g.add(f);
+    }
+    return finish(g, a, new THREE.Vector3(0.9, 0, 0.3), new THREE.Vector3(0, 0.2, 0.7), new THREE.Vector3(0, 0.1, 2.4), new THREE.Vector3(1.3, 0.6, 2.2), 1.3);
+  }
+
+  // store-v1: Aurora Gold: sone ka twin-boom racer
+  if (id === "aurora") {
+    const pod = new THREE.CapsuleGeometry(0.42, 2.2, 4, 12);
+    pod.rotateX(Math.PI / 2);
+    g.add(hullMesh(pod, m.white, 0, 0, 0.4));
+    const nose = new THREE.ConeGeometry(0.42, 1, 12);
+    nose.rotateX(Math.PI / 2);
+    nose.translate(0, 0, 2.2);
+    g.add(hullMesh(nose, m.gold));
+    g.add(hullMesh(new THREE.SphereGeometry(0.26, 12, 10), m.glass, 0, 0.24, 1.2));
+    g.add(hullMesh(new THREE.BoxGeometry(2.6, 0.06, 0.7), m.gold, 0, 0, -0.3));
+    for (const side of [-1, 1]) {
+      const boom = new THREE.CapsuleGeometry(0.22, 2.6, 4, 10);
+      boom.rotateX(Math.PI / 2);
+      g.add(hullMesh(boom, m.gold, side * 1.15, 0, -0.5));
+      g.add(hullMesh(new THREE.BoxGeometry(0.06, 0.6, 0.6), m.orange, side * 1.15, 0.35, -1.6));
+      const bell = new THREE.CylinderGeometry(0.14, 0.26, 0.45, 10);
+      bell.rotateX(Math.PI / 2);
+      g.add(hullMesh(bell, m.dark, side * 1.15, 0, -2.1));
+      const f = flameCone(m.flame);
+      f.scale.setScalar(0.8);
+      f.position.set(side * 1.15, 0, -2.2);
+      g.add(f);
+    }
+    return finish(g, a, new THREE.Vector3(0.7, 0, 0.4), new THREE.Vector3(0, 0.2, 1.1), new THREE.Vector3(0, 0.1, 2.6), new THREE.Vector3(1.5, 0.6, 2.4), 1.4);
+  }
+
   if (id === "pathfinder") {
     const fuse = new THREE.CapsuleGeometry(0.5, 5.2, 4, 14);
     fuse.rotateX(Math.PI / 2);

@@ -48,10 +48,12 @@ import { shareResult, shareText } from "./share";
 import { ContractManager } from "./contracts/manager";
 import type { ContractResult, ContractsSnap, SpotView, WorldProbe } from "./contracts/types";
 import { KIND_LABEL, PLANETS, ZONE_COLORS, type ZoneDef, type ZoneKind } from "./planets";
-import { defaultSave, loadSave, writeSave, type AgeGroup, type Quality, type SaveData, type Settings } from "./save";
+import { defaultSave, keepPaid, loadSave, writeSave, type AgeGroup, type Quality, type SaveData, type Settings } from "./save";
+import { billing } from "./billing"; // store-v1
+import { adsRemoved, buyShipWithNova, grantProduct, PRODUCT, storeAllowed } from "./store"; // store-v1
 import { TERMS_VERSION } from "./terms"; // welcome-gate-v1
 
-export type Screen = "menu" | "garage" | "missions" | "solar" | "settings" | "credits" | "play" | "pause";
+export type Screen = "menu" | "garage" | "missions" | "solar" | "settings" | "credits" | "play" | "pause" | "store";
 export type Phase =
   | "pad"
   | "cockpit"
@@ -88,6 +90,19 @@ export type Snap = {
   /** welcome-gate-v1: true jab tak player age bata kar terms accept na kare. */
   gate: boolean;
   ageGroup: AgeGroup | null;
+  /** store-v1 */
+  store: {
+    allowed: boolean;
+    nova: number;
+    ent: string[];
+    adsRemoved: boolean;
+    /** Jis product ki payment chal rahi hai (button par "..." dikhane ke liye). */
+    busy: string | null;
+    prices: Record<string, string>;
+    mode: "test" | "play";
+    /** Store se mile ships (bik nahi sakte). */
+    paid: ShipId[];
+  };
   confirmReset: boolean;
   modal: Modal | null;
   countdown: number | null;
@@ -248,6 +263,11 @@ export class Spacebound {
   private flash = 0;
   private confirmNew = false;
   private confirmReset = false;
+  // store-v1
+  private storeBusy: string | null = null;
+  /** Store garage se khula ho to back par garage mein wapas (usi ship par). */
+  private storeFromGarage: ShipId | null = null;
+  private prices: Record<string, string> = {};
   private inspect: ShipId = "starter";
   private chartFocus: DestId = "orbit";
   private checks = { fuel: false, eng: false, nav: false };
@@ -543,6 +563,16 @@ export class Spacebound {
       confirmNew: this.confirmNew,
       gate: this.save.profile.termsVersion < TERMS_VERSION,
       ageGroup: this.save.profile.ageGroup,
+      store: {
+        allowed: storeAllowed(this.save),
+        nova: this.save.nova,
+        ent: this.save.ent,
+        adsRemoved: adsRemoved(this.save),
+        busy: this.storeBusy,
+        prices: this.prices,
+        mode: billing.mode,
+        paid: this.save.paidShips,
+      },
       confirmReset: this.confirmReset,
       modal: this.modalQ[0] ?? null,
       countdown:
@@ -616,7 +646,9 @@ export class Spacebound {
     const settings = { ...this.save.settings };
     const hints = [...this.save.hints];
     const profile = { ...this.save.profile }; // welcome-gate-v1: new game par age/terms dobara na puchho
+    const old = this.save;
     this.save = defaultSave();
+    keepPaid(old, this.save); // store-v1: khareedi hui cheezein new game mein bhi
     this.save.settings = settings;
     this.save.hints = hints;
     this.save.profile = profile;
@@ -673,7 +705,9 @@ export class Spacebound {
     this.audio.ui();
     this.confirmNew = false;
     this.confirmReset = false;
-    if (screen === "garage" || screen === "solar" || screen === "missions" || screen === "settings" || screen === "credits") {
+    if (screen === "store" && !storeAllowed(this.save)) return; // store-v1: 13 se chhote players ke liye nahi
+    if (screen === "store") this.storeFromGarage = this.screen === "garage" ? this.inspect : null;
+    if (screen === "garage" || screen === "solar" || screen === "missions" || screen === "settings" || screen === "credits" || screen === "store") {
       if (this.screen === "menu" || this.screen === "pause" || this.screen === "play") this.backTo = this.screen;
     }
     if (screen === "menu") {
@@ -692,7 +726,8 @@ export class Spacebound {
       this.chartSun = false;
       this.screen = "solar";
       this.useScene(this.solarScene, "solar");
-    } else if (screen === "missions" || screen === "settings" || screen === "credits") {
+    } else if (screen === "missions" || screen === "settings" || screen === "credits" || screen === "store") {
+      if (screen === "store") void this.loadPrices();
       this.screen = screen;
       if (this.view === "flight" || this.view === "pad" || this.view === "surface") {
         /* keep the world behind the panel */
@@ -709,6 +744,16 @@ export class Spacebound {
 
   back(): void {
     this.audio.ui();
+    if (this.screen === "store" && this.storeFromGarage) {
+      // store-v1: garage se aaye the: wapas garage, usi ship par
+      const ship = this.storeFromGarage;
+      this.storeFromGarage = null;
+      this.open("garage");
+      this.inspect = ship;
+      this.mountGarage();
+      this.notifyNow = true;
+      return;
+    }
     const to = this.backTo;
     this.backTo = null;
     if (to === "menu") {
@@ -766,7 +811,9 @@ export class Spacebound {
     const settings = { ...this.save.settings };
     const hints = [...this.save.hints];
     const profile = { ...this.save.profile };
+    const old = this.save;
     this.save = defaultSave();
+    keepPaid(old, this.save); // store-v1: reset sirf game progress mitata hai, khareedi hui cheezein nahi
     this.save.settings = settings;
     this.save.hints = hints;
     this.save.profile = profile;
@@ -781,6 +828,78 @@ export class Spacebound {
     this.notifyNow = true;
   }
 
+  // ---------- store-v1 ----------
+
+  private async loadPrices(): Promise<void> {
+    if (Object.keys(this.prices).length) return;
+    try {
+      this.prices = await billing.prices();
+      this.notifyNow = true;
+    } catch {
+      /* qeematein na milein to card par USD wali dikhegi */
+    }
+  }
+
+  /** Asli paise wala product (Nova pack ya deal) khareedo. */
+  async storeBuy(productId: string): Promise<void> {
+    const p = PRODUCT[productId];
+    if (!p || this.storeBusy || !storeAllowed(this.save)) return;
+    if (!p.consumable && this.save.ent.includes(p.id)) {
+      this.toast("You already own this.");
+      return;
+    }
+    this.audio.ui();
+    this.storeBusy = productId;
+    this.notifyNow = true;
+    try {
+      const r = await billing.buy(productId);
+      if (r.status === "ok") {
+        const text = grantProduct(this.save, r.productId, r.orderId);
+        this.persist(true);
+        haptic.success();
+        this.toast(text ?? "Purchase complete.");
+      } else if (r.status === "error") {
+        this.toast("Purchase failed: " + r.message);
+      }
+    } catch {
+      this.toast("Purchase failed. Please try again.");
+    } finally {
+      this.storeBusy = null;
+      this.notifyNow = true;
+    }
+  }
+
+  /** Nova kharch karke ship (exclusive ya "Unlock now"). */
+  buyShipNova(id: ShipId): void {
+    this.audio.ui();
+    if (!storeAllowed(this.save)) return;
+    const r = buyShipWithNova(this.save, id);
+    this.toast(r.text);
+    if (r.ok) {
+      haptic.success();
+      this.persist(true);
+    }
+    this.notifyNow = true;
+  }
+
+  /** Reinstall ke baad ek-dafa wale purchases Google se wapas lo. */
+  async restorePurchases(): Promise<void> {
+    if (this.storeBusy) return;
+    this.storeBusy = "restore";
+    this.notifyNow = true;
+    try {
+      const owned = await billing.restore();
+      const lines = owned.map((o) => grantProduct(this.save, o.productId, o.orderId, true)).filter(Boolean);
+      this.persist(true);
+      this.toast(lines.length ? (lines as string[]).join(" ") : "Nothing new to restore.");
+    } catch {
+      this.toast("Could not reach Google Play. Try again later.");
+    } finally {
+      this.storeBusy = null;
+      this.notifyNow = true;
+    }
+  }
+
   setInspect(id: ShipId): void {
     this.inspect = id;
     this.mountGarage();
@@ -790,6 +909,10 @@ export class Spacebound {
   buy(id: ShipId): void {
     this.audio.ui();
     const ship = SHIPS[id];
+    if (ship.premium) {
+      this.toast(`${ship.name} is a Store exclusive.`);
+      return;
+    }
     if (!isShipUnlocked(this.save.done, ship)) {
       const mission = MISSIONS.find((m) => m.id === ship.unlock);
       this.toast(mission ? `Locked until you complete ${mission.name}.` : "Locked.");
@@ -820,6 +943,10 @@ export class Spacebound {
     }
     if (this.save.owned.length < 2) {
       this.toast("You can't sell your only spacecraft.");
+      return;
+    }
+    if (this.save.paidShips.includes(id)) {
+      this.toast("Ships from the Store can't be sold."); // store-v1
       return;
     }
     const pay = Math.round(SHIPS[id].price * 0.5);

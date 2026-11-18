@@ -2,7 +2,7 @@
 import type { AgeGroup } from "./save";
 
 /** Terms badalne par is number ko badhao: sab players se dobara accept karwaya jayega. */
-export const TERMS_VERSION = 1;
+export const TERMS_VERSION = 2; // store-v1: purchases aur ads shamil hue
 
 /** Apna contact email yahan likho (khali ho to terms mein contact line nahi dikhti). */
 export const CONTACT_EMAIL = "fahadsaeed2622@gmail.com";
@@ -14,19 +14,23 @@ export const TERMS_SECTIONS: { title: string; body: string }[] = [
   },
   {
     title: "Your data",
-    body: "The game works offline. Your progress and settings are saved only on this device. We do not ask for your name, email or an account, we do not collect personal data, and there are no ads or tracking. If you uninstall the app or clear its data, your progress is lost. If online features (like leaderboards) are added later, you will be asked first and these terms will be updated.",
+    body: "The game plays offline. Your progress and settings are saved only on this device. We do not ask for your name, email or an account. If you uninstall the app or clear its data, your progress is lost. Purchases go through Google Play, and ads (if shown) come from Google AdMob, which may use your device's advertising ID. Players under 13 only get child-safe, non-personalised ads. Full details: fahad2bhatti.github.io/SpaceBound/privacy.html",
   },
   {
     title: "Age",
     body: "We ask your date of birth once, only to set up the right experience. Only your age group is kept on this device, not your birth date. If you are under 13 (or under the age of digital consent where you live), please ask a parent or guardian to read and agree to these terms with you.",
   },
   {
-    title: "Credits and items",
-    body: "Credits, ships and upgrades exist only inside the game. They have no real-world value and cannot be bought, sold or cashed out.",
+    title: "Credits, Nova and purchases",
+    body: "Credits (CR), Nova, ships and upgrades exist only inside the game and have no real-world value; they cannot be sold, traded or cashed out. Nova and some deals can be bought with real money through Google Play. Purchases are final once delivered, except where the law or Google Play's refund policy says otherwise. Nova is saved only on this device and is lost if you uninstall or clear the app's data; one-time deals and Store ships come back with Restore purchases. Players under 18 should ask a parent before buying. The Store is not shown to players under 13.",
   },
   {
     title: "Fair use",
     body: "You may play the game for personal, non-commercial use. Please do not copy, resell or redistribute the game, or pass it off as your own.",
+  },
+  {
+    title: "Ads",
+    body: "The game may show ads, including optional reward videos you choose to watch. Buying Remove Ads turns off the ads you did not ask for.",
   },
   {
     title: "No warranty",

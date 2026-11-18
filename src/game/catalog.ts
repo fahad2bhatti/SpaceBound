@@ -8,7 +8,10 @@ export type ShipId =
   | "ultimate"
   | "pathfinder"
   | "nebula"
-  | "galaxy";
+  | "galaxy"
+  // store-v1: exclusive ships, sirf Store se (Nova) milte hain
+  | "phantom"
+  | "aurora";
 
 export type BodyId = "earth" | "moon" | "mars" | "jupiter" | "saturn" | "uranus" | "neptune";
 
@@ -45,6 +48,8 @@ export type ShipDef = {
   burn: number;
   unlock: string | null;
   blurb: string;
+  /** store-v1: exclusive ship. Credits se nahi bikta, sirf Store mein itne Nova (◆) ka. */
+  premium?: number;
 };
 
 export type BodyDef = {
@@ -242,7 +247,55 @@ export const SHIP_LIST: ShipDef[] = [
     unlock: "neptune-survey",
     blurb: "Triple-ring generation ship. The only hull rated for intergalactic crossings.",
   },
+  // store-v1: exclusive ships (Store only)
+  {
+    id: "phantom",
+    name: "Shadow Phantom",
+    category: "Exclusive Interceptor",
+    price: 0,
+    speed: 7.2,
+    fuel: 560,
+    accel: 14,
+    crew: 2,
+    range: 520,
+    life: 50 * 60,
+    cargo: 3,
+    burn: 2.6,
+    unlock: null,
+    blurb: "Black stealth delta with an orange spine. Fast off the pad and certified as far as Mars.",
+    premium: 450,
+  },
+  {
+    id: "aurora",
+    name: "Aurora Gold",
+    category: "Exclusive Racer",
+    price: 0,
+    speed: 8.8,
+    fuel: 950,
+    accel: 15.2,
+    crew: 4,
+    range: 1500,
+    life: 90 * 60,
+    cargo: 6,
+    burn: 3,
+    unlock: null,
+    blurb: "Gold-plated twin-boom racer. The quickest hull in the yard, rated all the way to Saturn.",
+    premium: 900,
+  },
 ];
+
+/** store-v1: Store mein "Unlock now" ki Nova qeemat (mission poora kiye baghair seedha ship). */
+export const NOVA_UNLOCK: Partial<Record<ShipId, number>> = {
+  orbital: 60,
+  lunar: 120,
+  advanced: 200,
+  heavy: 300,
+  elite: 450,
+  ultimate: 650,
+  pathfinder: 900,
+  nebula: 1200,
+  galaxy: 1600,
+};
 
 export const SHIPS: Record<ShipId, ShipDef> = Object.fromEntries(
   SHIP_LIST.map((s) => [s.id, s]),
@@ -674,7 +727,9 @@ export function maxRange(ship: ShipDef): number {
 }
 
 export function gateShip(route: number): ShipDef {
-  return SHIP_LIST.find((s) => maxRange(s) >= route) ?? SHIP_LIST[SHIP_LIST.length - 1]!;
+  // store-v1: exclusive (Store) ships kabhi "needs" wala ship nahi bante
+  const free = SHIP_LIST.filter((s) => !s.premium);
+  return free.find((s) => maxRange(s) >= route) ?? free[free.length - 1]!;
 }
 
 export function isShipUnlocked(done: readonly string[], ship: ShipDef): boolean {

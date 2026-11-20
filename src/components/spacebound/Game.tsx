@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { initAds, setBanner } from "@/game/ads"; // admob-v1
+import { initAds, setAdsRemoved, setBanner } from "@/game/ads"; // admob-v1
 import { Welcome } from "./Welcome"; // welcome-gate-v1
 import {
   Award,
+  ShoppingBag,
   Compass,
   Gauge,
   Info,
@@ -45,6 +46,8 @@ import { pickHint } from "@/game/hints";
 import { placeWaypoint } from "@/game/waypoint";
 import { ContractHud, ContractResultView } from "./Contracts";
 import { MissionsScreen } from "./MissionsScreen";
+import { Store, storeStartTab } from "./Store"; // store-v1
+import { novaPrice } from "@/game/store"; // store-v1
 import { SUN_GUIDE } from "@/game/guide";
 import { LandingPanel } from "./Landing";
 // phone-fix-map-v1
@@ -164,7 +167,11 @@ export function Game() {
   // admob-v1: age group + terms ke baad ads init; banner sirf main menu par.
   const adAge = snap?.ageGroup ?? null;
   const adGate = snap ? snap.gate : true;
-  const adMenu = !!snap && snap.screen === "menu" && !snap.gate;
+  const adMenu = !!snap && snap.screen === "menu" && !snap.gate && !snap.store.adsRemoved;
+  const adsOff = !!snap && snap.store.adsRemoved;
+  useEffect(() => {
+    setAdsRemoved(adsOff); // store-v1: Remove Ads khareeda to banner + interstitial band
+  }, [adsOff]);
   useEffect(() => {
     if (!adGate && adAge) void initAds(adAge);
   }, [adGate, adAge]);
@@ -199,6 +206,7 @@ export function Game() {
         {snap && snap.screen === "solar" && <Solar snap={snap} act={act} />}
         {snap && snap.screen === "settings" && <SettingsPanel snap={snap} act={act} />}
         {snap && snap.screen === "credits" && <Credits act={act} />}
+        {snap && snap.screen === "store" && <Store snap={snap} act={act} />}
         {snap && snap.screen === "pause" && <Pause snap={snap} act={act} />}
         {snap && (snap.screen === "play" || snap.screen === "pause") && snap.screen === "play" && (
           <Hud snap={snap} act={act} />
@@ -319,31 +327,53 @@ function Menu({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =>
           Walk the gantry, earn the range, and bring the ship home. Distances are compressed so a transfer
           takes minutes, not months.
         </p>
-        <p className="font-display text-lg text-primary">{formatInt(snap.credits)} CR</p>
+        <p className="font-display text-lg text-primary">
+          {formatInt(snap.credits)} CR
+          {snap.store.allowed && <span className="ml-3 text-accent">◆ {formatInt(snap.store.nova)}</span>}
+        </p>
         {snap.confirmNew ? (
           <>
             <p className="text-sm text-fg">Starting fresh replaces the saved mission.</p>
-            <Cmd tone="accent" onClick={() => act((e) => e.newGame())}>
-              Start fresh <Play className="size-5" />
-            </Cmd>
-            <Cmd onClick={() => act((e) => e.cancelNew())}>Keep save</Cmd>
+            <div className="sb-menu-main grid gap-4">
+              <Cmd tone="accent" onClick={() => act((e) => e.newGame())}>
+                Start fresh <Play className="size-5" />
+              </Cmd>
+              <Cmd onClick={() => act((e) => e.cancelNew())}>Keep save</Cmd>
+            </div>
           </>
         ) : (
-          <>
-            <Cmd tone="accent" onClick={() => act((e) => e.requestNew())}>
-              New Game <Play className="size-5" />
-            </Cmd>
-            {snap.started && (
-              <Cmd onClick={() => act((e) => e.continueGame())}>
-                Continue <Rocket className="size-5" />
+          // ui-review-v1: saved game ho to Continue pehle (orange), New Game uske saath
+          <div className="sb-menu-main grid gap-4">
+            {snap.started ? (
+              <>
+                <Cmd tone="accent" onClick={() => act((e) => e.continueGame())}>
+                  Continue <Rocket className="size-5" />
+                </Cmd>
+                <Cmd onClick={() => act((e) => e.requestNew())}>
+                  New Game <Play className="size-5" />
+                </Cmd>
+              </>
+            ) : (
+              <Cmd tone="accent" onClick={() => act((e) => e.requestNew())}>
+                New Game <Play className="size-5" />
               </Cmd>
             )}
-          </>
+          </div>
         )}
         <div className="sb-menu-grid flex flex-col gap-4">
           <Cmd onClick={() => act((e) => e.open("garage"))}>
             Spacecraft Garage <Gauge className="size-5" />
           </Cmd>
+          {snap.store.allowed && (
+            <Cmd
+              onClick={() => {
+                storeStartTab("deals");
+                act((e) => e.open("store"));
+              }}
+            >
+              Store <ShoppingBag className="size-5" />
+            </Cmd>
+          )}
           <Cmd onClick={() => act((e) => e.open("missions"))}>
             Missions <Award className="size-5" />
           </Cmd>
@@ -404,16 +434,30 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
             <Cmd tone="accent" onClick={() => act((e) => e.selectShip(ship.id))}>
               {snap.selected === ship.id ? "On the pad" : "Select ship"} <Rocket className="size-5" />
             </Cmd>
+          ) : ship.premium ? (
+            // store-v1: exclusive ship sirf Store se
+            snap.store.allowed ? (
+              <Cmd tone="accent" onClick={() => openStoreShips(act)}>
+                ◆ {formatInt(ship.premium)} · Store
+              </Cmd>
+            ) : (
+              <Cmd onClick={() => act((e) => e.buy(ship.id))}>Store exclusive</Cmd>
+            )
           ) : unlocked ? (
             <Cmd tone="accent" onClick={() => act((e) => e.buy(ship.id))}>
               Buy {formatInt(ship.price)} CR
             </Cmd>
           ) : (
-            <Cmd onClick={() => act((e) => e.buy(ship.id))}>
-              Locked · {MISSIONS.find((m) => m.id === ship.unlock)?.name ?? "Mission"}
-            </Cmd>
+            <>
+              <Cmd onClick={() => act((e) => e.buy(ship.id))}>
+                Locked · {MISSIONS.find((m) => m.id === ship.unlock)?.name ?? "Mission"}
+              </Cmd>
+              {snap.store.allowed && novaPrice(ship.id) !== null && (
+                <Cmd onClick={() => openStoreShips(act)}>Unlock now ◆ {formatInt(novaPrice(ship.id) ?? 0)}</Cmd>
+              )}
+            </>
           )}
-          {owned && snap.selected !== ship.id && (
+          {owned && snap.selected !== ship.id && !snap.store.paid.includes(ship.id) && (
             <Cmd onClick={() => act((e) => e.sell(ship.id))}>Sell for {formatInt(Math.round(ship.price * 0.5))} CR</Cmd>
           )}
         </div>
@@ -439,7 +483,14 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
             >
               <span className="block font-display text-lg uppercase leading-tight">{s.name}</span>
               <span className="block text-xs text-muted">
-                {isShipUnlocked(snap.done, s) ? (snap.owned.includes(s.id) ? "Owned" : `${formatInt(s.price)} CR`) : "Locked"} · {km(s.range)}
+                {snap.owned.includes(s.id)
+                  ? "Owned"
+                  : s.premium
+                    ? "Exclusive"
+                    : isShipUnlocked(snap.done, s)
+                      ? `${formatInt(s.price)} CR`
+                      : "Locked"}{" "}
+                · {km(s.range)}
               </span>
             </button>
           ))}
@@ -447,6 +498,12 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
       </div>
     </div>
   );
+}
+
+/** store-v1: Garage se Store ka Ships tab kholo. */
+function openStoreShips(act: (fn: (e: Spacebound) => void) => void): void {
+  storeStartTab("ships");
+  act((e) => e.open("store"));
 }
 
 function UpgradeRow({
@@ -816,7 +873,7 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
       <div className="absolute right-4 top-4 border border-line bg-bg/80 p-3 text-right backdrop-blur-md sm:right-6 sm:top-6 sb-dest">
         <p className="font-display text-xs tracking-widest text-primary">{DESTS[snap.destination].name}</p>
         <p className="font-display text-xl">{formatClock(snap.life)} LIFE</p>
-        {flight && <p className="text-xs text-muted">{Math.round(snap.destDist)} su to target</p>}
+        {snap.phase === "flight" && <p className="text-xs text-muted">{km(snap.destDist)} to target</p>}
       </div>
       {flight && snap.freeCam && (
         <p className="pointer-events-none absolute left-1/2 top-[8.5rem] -translate-x-1/2 whitespace-nowrap font-display text-xs tracking-widest text-muted">
@@ -875,7 +932,9 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
           {snap.rangeLocked
             ? "RANGE LOCK"
             : snap.braking
-              ? "ENTRY BRAKE"
+              ? snap.climb < 0
+                ? "ENTRY BRAKE"
+                : "SPEED LIMIT"
               : snap.assistActive
                 ? snap.envelope
                   ? "ASSIST · LANDING ENVELOPE"
@@ -902,7 +961,7 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
                   {snap.zones.target.name}
                 </p>
                 <p className="text-xs text-muted">
-                  {snap.zones.target.inside ? "IN ZONE" : snap.zones.target.kind.toUpperCase() + " · " + Math.round(snap.zones.target.dist) + " su"}
+                  {snap.zones.target.inside ? "IN ZONE" : snap.zones.target.kind.toUpperCase() + " · " + km(snap.zones.target.dist)}
                 </p>
               </div>
               <svg
@@ -931,7 +990,7 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
         <>
           <div className="absolute bottom-6 left-4 border border-line bg-bg/80 p-3 backdrop-blur-md sb-ox">
             <p className="text-xs text-muted">SHUTTLE RANGE</p>
-            <p className="font-display text-3xl">{Math.round(snap.eva.range)} su</p>
+            <p className="font-display text-3xl">{Math.round(snap.eva.range)} m</p>
             {!snap.contracts.active?.oxygen && <p className="text-xs text-muted">OXYGEN {Math.round(snap.ox)}%</p>}
             <div className="mt-1 h-1.5 w-32 bg-line">
               <div
@@ -1037,6 +1096,8 @@ function CheckBtn({ on, label, onClick }: { on: boolean; label: string; onClick:
 function Touch({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => void }) {
   const flight = snap.phase === "flight";
   const eva = snap.phase === "eva";
+  // playtest-v1: cockpit / countdown / liftoff mein player seat par hai: joystick, JUMP, RUN ka koi kaam nahi
+  const seated = /^(surface)?(cockpit|countdown|liftoff)$/i.test(snap.phase);
   const setStick = (x: number, y: number) => act((e) => e.input.setTouch({ x, y }));
   const scale = snap.settings.touchScale;
   return (
@@ -1057,6 +1118,8 @@ function Touch({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
           <TouchBtn label="▼" hold onHold={(v) => act((e) => e.input.setTouch({ pitchDown: v }))} />
           <TouchBtn label="▶" hold onHold={(v) => act((e) => e.input.setTouch({ x: v ? 1 : 0 }))} />
         </div>
+      ) : seated ? (
+        <span />
       ) : (
         <Stick onChange={setStick} scale={scale} />
       )}
@@ -1085,7 +1148,7 @@ function Touch({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
             <TouchBtn label="RCS+" hold onHold={(v) => act((e) => e.input.setTouch({ rcsUp: v }))} />
             <TouchBtn label="RCS-" hold onHold={(v) => act((e) => e.input.setTouch({ rcsDown: v }))} />
           </>
-        ) : (
+        ) : seated ? null : (
           <>
             <TouchBtn label="JUMP" hold onHold={(v) => act((e) => e.input.setTouch({ jump: v }))} />
             <TouchBtn label="RUN" hold onHold={(v) => act((e) => e.input.setTouch({ run: v }))} />
@@ -1218,7 +1281,7 @@ function Waypoint({ engineRef, name }: { engineRef: React.RefObject<Spacebound |
         arrow.current.style.transform = "rotate(" + Math.round(pos.angle) + "deg)";
       }
       if (ring.current) ring.current.style.display = pos.off ? "none" : "block";
-      if (label.current) label.current.textContent = name.toUpperCase() + " · " + Math.round(p.dist) + " su";
+      if (label.current) label.current.textContent = name.toUpperCase() + " · " + km(p.dist);
     };
     loop();
     return () => cancelAnimationFrame(raf);

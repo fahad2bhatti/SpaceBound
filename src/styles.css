@@ -360,3 +360,56 @@
 @keyframes sb-fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .sb-fade { animation: sb-fade-in 0.7s ease both; }
 .sb-select { color-scheme: dark; background: var(--color-surface); border: 1px solid var(--color-line); color: var(--color-fg); min-height: 2.75rem; padding: 0 0.5rem; font-size: 1rem; }
+
+/* welcome-gate-v2: chhoti landscape screen par card compact, taake terms poori screen mein aaye */
+@media (max-height: 520px) and (orientation: landscape) {
+  .sb-welcome { gap: 0.5rem; padding: 0.625rem 1rem; }
+  .sb-welcome h1 { font-size: 2.25rem; }
+  .sb-welcome h2 { font-size: 1.5rem; }
+  .sb-welcome button { min-height: 2.5rem; padding-top: 0.25rem; padding-bottom: 0.25rem; font-size: 1.05rem; }
+  .sb-welcome p { font-size: 0.8125rem; line-height: 1.35; }
+}
+
+/* ui-review-v1: player ki nazar se review ke fixes */
+/* Scroll hone wale panels mein buttons/boxes dab (shrink) nahi sakte, warna lambi text border se bahar nikal jaati hai
+   (jaise Missions screen ka "Next on your route" button). */
+.sb-panel > *, .sb-panel-menu > *, .sb-side > *, .sb-pane > *, .sb-garage-side > *, .sb-ms-side > * { flex-shrink: 0; }
+@media (max-height: 520px) and (orientation: landscape) {
+  /* Menu: Continue + New Game ek line mein, taake Credits tak sab screen par aaye */
+  .sb-panel-menu .sb-menu-main { grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 0.5rem; }
+  .sb-panel-menu .sb-menu-main button { justify-content: center; text-align: center; }
+  .sb-panel-menu .sb-menu-main svg { display: none; }
+  /* Flight: landing zones box chhota aur destination box ke neeche, taake E / C buttons ke upar na aaye */
+  .sb-zone { top: 4.4rem; right: 0.75rem; min-width: 0; max-width: 12rem; padding: 0.3rem 0.5rem; }
+  .sb-zone p { font-size: 0.65rem; line-height: 1.2; }
+  .sb-zone p.text-sm { font-size: 0.8rem; }
+  .sb-zone svg { width: 1.25rem; height: 1.25rem; }
+  /* Flight: contract box chhota, taake D-pad ke upar na aaye (andar scroll hota hai) */
+  .sb-contract { max-height: 6.75rem; }
+  /* Toast (2 line) aur tip ek doosre ke upar na aayein */
+  main:has(.sb-toast) .sb-tip { top: 7.4rem; }
+  /* "Mars Atmosphere" label tip box ke neeche na chhupe */
+  .sb-atmo-tag { bottom: 7.2rem; }
+  /* Cockpit: joystick chhupa hai, to "E Exit hatch" neeche left mein, preflight panel ke upar nahi */
+  main:has(.sb-preflight) .sb-prompt { left: 0.75rem; bottom: 0.75rem; translate: none; transform: none; max-width: 10rem; }
+}
+
+/* playtest-v1: landing report card ke peeche toast ke tukde nazar aate the; card khuli ho to toast chhupao */
+main:has(.sb-landing) .sb-toast { display: none; }
+
+/* store-v1: Store screen */
+.sb-store { width: min(100%, 44rem); }
+.sb-store-grid { grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); }
+.sb-store-price { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
+@media (orientation: landscape) {
+  .sb-store { width: 62%; max-width: 44rem; }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  .sb-store { padding: 0.6rem 0.9rem; gap: 0.45rem; }
+  .sb-store h2 { font-size: 1.6rem; }
+  .sb-store-grid { grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: 0.4rem; }
+  .sb-store-card { padding: 0.45rem 0.6rem; gap: 0.3rem; }
+  .sb-store-card p.text-xl { font-size: 1.05rem; }
+  .sb-store-price { min-height: 2.25rem; font-size: 1rem; }
+  .sb-store .min-h-10 { min-height: 2.1rem; }
+}

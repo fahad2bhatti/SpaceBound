@@ -6,7 +6,7 @@
 //
 // The engine owns the wallet and the world; it feeds this class events (handle), a world probe (tick) and
 // interactions (interact), and reacts to the hooks. Everything here lives in one saved slice (ContractsSave).
-import { MISSIONS, SHIPS } from "../catalog";
+import { MISSIONS, SHIPS, km } from "../catalog";
 import type { BodyId } from "../catalog";
 import { CONTRACTS, DIFFICULTY_ORDER, scaledLimit } from "./data";
 import { getHandler, type HandlerCtx } from "./objectives";
@@ -170,7 +170,7 @@ export class ContractManager {
     const r = def.requirements;
     if (!r) return null;
     const ctx = this.hooks.ctx();
-    if (r.minRange !== undefined && ctx.range + 0.01 < r.minRange) return `Needs ${r.minRange} su ship range`;
+    if (r.minRange !== undefined && ctx.range + 0.01 < r.minRange) return `Needs ${km(r.minRange)} ship range`;
     if (r.ships && !r.ships.includes(ctx.ship)) return `Needs ${r.ships.map((s) => SHIPS[s].name).join(" or ")}`;
     for (const m of r.campaign ?? []) {
       if (!ctx.campaignDone.includes(m)) return `Finish campaign: ${MISSIONS.find((x) => x.id === m)?.name ?? m}`;

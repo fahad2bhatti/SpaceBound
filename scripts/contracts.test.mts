@@ -283,7 +283,7 @@ t("save: v1 save without contracts loads with defaults; damaged data is repaired
   assert.equal(s.board.length, 3);
   assert.equal(s.xp, 0);
   assert.equal(s.active, null);
-  assert.equal(defaultSave().version, 3);
+  assert.equal(defaultSave().version, 4);
   assert.deepEqual(defaultSave().contracts, defaultContractsSave());
 });
 

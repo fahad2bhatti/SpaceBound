@@ -67,14 +67,30 @@ export function Welcome({ snap, act }: { snap: Snap; act: Act }) {
     setStep("terms");
   };
 
+  const stepNo = step === "hello" ? 1 : step === "age" ? 2 : 3;
+  const dots = (
+    <div className="flex justify-center gap-2" aria-hidden>
+      {[1, 2, 3].map((n) => (
+        <span key={n} className={"h-1 w-8 " + (n <= stepNo ? "bg-accent" : "bg-line")} />
+      ))}
+    </div>
+  );
+
   return (
-    <div className="flex h-full items-end sm:items-center">
-      <aside className="pointer-events-auto sb-fade flex max-h-full w-full flex-col gap-4 overflow-y-auto bg-bg/90 p-5 backdrop-blur-md sm:max-w-md sm:border-r sm:border-line sm:p-8">
-        <div>
-          <p className="font-display text-sm tracking-widest text-primary">NORTHLINE RANGE</p>
-          <h1 className="font-display text-5xl uppercase leading-none text-fg sm:text-6xl">Spacebound</h1>
-          <p className="font-display text-lg tracking-widest text-accent">Beyond Earth</p>
-        </div>
+    <div className="pointer-events-auto flex h-full items-center justify-center bg-bg/55 p-3 sm:p-6">
+      <section
+        className={
+          "sb-fade sb-welcome flex max-h-full w-full flex-col gap-3 border border-line bg-bg/92 p-4 backdrop-blur-md sm:gap-4 sm:p-6 " +
+          (step === "terms" ? "max-w-2xl" : "max-w-md text-center")
+        }
+      >
+        {step !== "terms" && (
+          <div>
+            <p className="font-display text-sm tracking-widest text-primary">NORTHLINE RANGE</p>
+            <h1 className="font-display text-5xl uppercase leading-none text-fg sm:text-6xl">Spacebound</h1>
+            <p className="font-display text-lg tracking-widest text-accent">Beyond Earth</p>
+          </div>
+        )}
 
         {step === "hello" && (
           <>
@@ -86,6 +102,7 @@ export function Welcome({ snap, act }: { snap: Snap; act: Act }) {
             <Btn accent onClick={() => setStep("age")}>
               Continue <ArrowRight className="size-5" />
             </Btn>
+            {dots}
           </>
         )}
 
@@ -96,7 +113,7 @@ export function Welcome({ snap, act }: { snap: Snap; act: Act }) {
               This helps us set things up the right way for you. Only your age group is kept on this device, never your
               birth date.
             </p>
-            <div className="grid grid-cols-[1fr_1.6fr_1.2fr] gap-2">
+            <div className="grid grid-cols-[1fr_1.6fr_1.2fr] gap-2 text-left">
               <select aria-label="Day" className="sb-select" value={d} onChange={(e) => setD(e.target.value)}>
                 <option value="">Day</option>
                 {Array.from({ length: 31 }, (_, i) => i + 1).map((n) => (
@@ -126,22 +143,29 @@ export function Welcome({ snap, act }: { snap: Snap; act: Act }) {
             <Btn accent disabled={!d || !m || !y} onClick={submitAge}>
               Continue <ArrowRight className="size-5" />
             </Btn>
+            {dots}
           </>
         )}
 
         {step === "terms" && (
           <>
-            <h2 className="font-display text-3xl uppercase">Terms &amp; Privacy</h2>
+            <div className="flex shrink-0 items-baseline justify-between gap-3">
+              <h2 className="font-display text-2xl uppercase sm:text-3xl">Terms &amp; Privacy</h2>
+              <p className="font-display text-xs tracking-widest text-primary">SPACEBOUND</p>
+            </div>
             {child && (
-              <p className="text-sm leading-relaxed text-primary">
+              <p className="shrink-0 text-sm leading-snug text-primary">
                 Please ask a parent or guardian to read this with you and agree.
               </p>
             )}
-            <div className="max-h-[38vh] overflow-y-auto border border-line bg-surface/60 p-3 text-sm leading-relaxed text-muted">
-              {TERMS_SECTIONS.map((s) => (
-                <div key={s.title} className="mb-3 last:mb-0">
-                  <p className="font-display text-base uppercase tracking-wide text-fg">{s.title}</p>
-                  <p>{s.body}</p>
+            {/* sirf yehi box scroll hota hai: checkbox aur buttons hamesha screen par rehte hain */}
+            <div className="min-h-0 flex-1 overflow-y-auto border border-line bg-surface/60 p-3 text-left text-sm leading-relaxed text-muted">
+              {TERMS_SECTIONS.map((sec, i) => (
+                <div key={sec.title} className="mb-3 last:mb-0">
+                  <p className="font-display text-base uppercase tracking-wide text-fg">
+                    {i + 1}. {sec.title}
+                  </p>
+                  <p>{sec.body}</p>
                 </div>
               ))}
               {CONTACT_EMAIL && (
@@ -150,17 +174,12 @@ export function Welcome({ snap, act }: { snap: Snap; act: Act }) {
                 </p>
               )}
             </div>
-            <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm text-fg">
-              <input
-                type="checkbox"
-                className="sr-only"
-                checked={agree}
-                onChange={(e) => setAgree(e.target.checked)}
-              />
+            <label className="flex min-h-10 shrink-0 cursor-pointer items-center gap-3 text-left text-sm text-fg">
+              <input type="checkbox" className="sr-only" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
               <span
                 aria-hidden
                 className={
-                  "mt-0.5 flex size-6 shrink-0 items-center justify-center border " +
+                  "flex size-6 shrink-0 items-center justify-center border " +
                   (agree ? "border-accent bg-accent text-bg" : "border-line bg-surface")
                 }
               >
@@ -172,13 +191,15 @@ export function Welcome({ snap, act }: { snap: Snap; act: Act }) {
                   : "I have read and agree to the Terms & Privacy."}
               </span>
             </label>
-            <Btn accent disabled={!agree} onClick={() => act((e) => e.acceptTerms())}>
-              Accept &amp; play <ArrowRight className="size-5" />
-            </Btn>
-            <Btn onClick={exitApp}>Decline &amp; exit</Btn>
+            <div className="grid shrink-0 grid-cols-2 gap-2">
+              <Btn onClick={exitApp}>Decline</Btn>
+              <Btn accent disabled={!agree} onClick={() => act((e) => e.acceptTerms())}>
+                Accept <ArrowRight className="size-5" />
+              </Btn>
+            </div>
           </>
         )}
-      </aside>
+      </section>
     </div>
   );
 }

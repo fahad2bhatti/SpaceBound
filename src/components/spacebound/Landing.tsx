@@ -30,7 +30,7 @@ export function LandingPanel({ snap, act }: { snap: Snap; act: Act }) {
         if (e.key === "Enter" || e.key === " ") tap();
       }}
       className={
-        "pointer-events-auto absolute left-1/2 top-16 z-20 w-[min(20rem,92vw)] -translate-x-1/2 cursor-pointer border bg-bg/90 p-3 text-center backdrop-blur-md " +
+        "sb-landing pointer-events-auto absolute left-1/2 top-16 z-20 w-[min(20rem,92vw)] -translate-x-1/2 cursor-pointer border bg-bg/90 p-3 text-center backdrop-blur-md " +
         (r.perfect ? "border-accent" : "border-line") +
         (instant ? " sb-landing-instant" : "")
       }

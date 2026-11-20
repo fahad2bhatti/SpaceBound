@@ -1,6 +1,6 @@
 // missions-guide-v1: har planet ki guide + mission ko planet se jodne ke helpers. Pure TypeScript (no three.js / DOM).
 // Numbers (route, SOI, gravity, zones, score multiplier) catalog / planets / landing se aate hain, taake config badle to guide khud sahi rahe.
-import { BODIES, DEEP_IDS, DESTS, SHIP_LIST, gateShip, type BodyId, type DeepId, type DestId, type MissionDef, type ShipDef } from "./catalog";
+import { BODIES, DEEP_IDS, DESTS, SHIP_LIST, gateShip, km, mps, type BodyId, type DeepId, type DestId, type MissionDef, type ShipDef } from "./catalog";
 import { BODY_MULT } from "./landing";
 import { KIND_LABEL, PLANETS } from "./planets";
 
@@ -11,13 +11,14 @@ export const PLACE_ORDER: PlaceId[] = ["earth", "moon", "mars", "jupiter", "satu
 
 export const PLACE_TAG: Record<PlaceId, string> = {
   earth: "Home · orbit · station",
-  moon: "Rock · 210 su",
-  mars: "Rust · 470 su",
-  jupiter: "Gas giant · 900 su",
-  saturn: "Gas giant · 1380 su",
-  uranus: "Ice giant · 2150 su",
-  neptune: "Ice giant · 2700 su",
-  deep: "Beyond Neptune · " + DESTS.proxima.route + "+ su",
+  // ui-review-v1: player ko har jagah km dikhe (su sirf andar ka unit hai)
+  moon: "Rock · " + km(BODIES.moon.route),
+  mars: "Rust · " + km(BODIES.mars.route),
+  jupiter: "Gas giant · " + km(BODIES.jupiter.route),
+  saturn: "Gas giant · " + km(BODIES.saturn.route),
+  uranus: "Ice giant · " + km(BODIES.uranus.route),
+  neptune: "Ice giant · " + km(BODIES.neptune.route),
+  deep: "Beyond Neptune · " + km(DESTS.proxima.route) + "+",
 };
 
 export type GuideSection = { title: string; lines: string[] };
@@ -55,14 +56,14 @@ const STATIC: Record<BodyId, { summary: string; reach: string[]; landing: string
       "Walk to your ship, board, finish preflight and wait out the countdown.",
       "Raise throttle (W, or THR+ on the phone) and let the gravity turn carry you up. Up/Down arrows only pitch the nose.",
       "Parking orbit: hold between 5.4 and 18 altitude above Earth for about 6 seconds.",
-      "Vesper Station is 75 su from Earth on the Moon route. Come within 8 su below 8 su/s to log the visit.",
+      `Vesper Station is ${km(75)} from Earth on the Moon route. Come within ${km(8)} below ${mps(8)} to log the visit.`,
     ],
     landing: [
       "Landing on Earth always sets you down at the Northline pad. Land the ship to finish a return mission.",
       "Earth landings pay a quarter of the normal grade bonus, so do not farm them.",
     ],
     onFoot: [
-      "At the station, press E within 9 su and below 8 su/s to start a spacewalk (EVA). Hold E on the glowing marker to repair.",
+      `At the station, press E within ${km(9)} and below ${mps(8)} to start a spacewalk (EVA). Hold E on the glowing marker to repair.`,
       "EVA oxygen drains faster the farther you drift from the shuttle. Press E near the airlock to get back in.",
     ],
     danger: [SUN_WARNING],
@@ -99,11 +100,11 @@ const STATIC: Record<BodyId, { summary: string; reach: string[]; landing: string
   jupiter: {
     summary: "The first gas giant. No rock to land on, but a cloud deck you can touch down on.",
     reach: [
-      "Plot Jupiter and fly to the cloud-deck beacon. Passing within 8 su logs the flyby and pays the mission.",
-      "Check the Needs line above: the route is 900 su, so a short-range hull will not make it.",
+      `Plot Jupiter and fly to the cloud-deck beacon. Passing within ${km(8)} logs the flyby and pays the mission.`,
+      `Check the Needs line above: the route is ${km(BODIES.jupiter.route)}, so a short-range hull will not make it.`,
     ],
     landing: [
-      "Hover over the storm bands and ease down slowly. Landing assist only switches on close to the cloud deck.",
+      "Hover over the storm bands and ease down slowly. Strong gravity: keep the nose up and use the main engine. Near the deck the clouds cushion you, so a slow descent always lands.",
       "The flyby beacon must be logged first, or the landing mission will not pay.",
     ],
     onFoot: ["You can step out on the cloud deck with E. Oxygen drains as on any surface, so keep the walk short."],
@@ -112,8 +113,8 @@ const STATIC: Record<BodyId, { summary: string; reach: string[]; landing: string
   saturn: {
     summary: "Rings, a science beacon and a calm cloud-deck pad.",
     reach: [
-      "Plot Saturn and thread the ring-plane beacon. Passing within 8 su logs the flyby.",
-      "The route is 1380 su. Check the Needs line above before you plot it.",
+      `Plot Saturn and thread the ring-plane beacon. Passing within ${km(8)} logs the flyby.`,
+      `The route is ${km(BODIES.saturn.route)}. Check the Needs line above before you plot it.`,
     ],
     landing: ["The cloud-deck pad is the calmest deep-space landing in the catalog. Land gently and the bonus is worth it."],
     onFoot: ["Step out with E for survey contracts. Stay close to the ship."],
@@ -122,8 +123,8 @@ const STATIC: Record<BodyId, { summary: string; reach: string[]; landing: string
   uranus: {
     summary: "Cold ice giant. A survey beacon and a frozen cloud-deck pad.",
     reach: [
-      "Plot Uranus and reach the survey beacon (8 su) to log the survey.",
-      "The route is 2150 su. Only the longest-range hulls are rated for it.",
+      `Plot Uranus and reach the survey beacon (within ${km(8)}) to log the survey.`,
+      `The route is ${km(BODIES.uranus.route)}. Only the longest-range hulls are rated for it.`,
     ],
     landing: ["Touch down on the frozen cloud deck. Fuel is the real problem here: plan the return burn before you descend."],
     onFoot: ["Survey contracts ask for a walk on the deck. Keep an eye on oxygen."],
@@ -132,8 +133,8 @@ const STATIC: Record<BodyId, { summary: string; reach: string[]; landing: string
   neptune: {
     summary: "The far marker of this catalog. Fly the beacon, land on the cloud deck, come home.",
     reach: [
-      "Plot Neptune and reach the final beacon (8 su) to finish the survey.",
-      "The route is 2700 su. Only the longest-range hulls can fly it.",
+      `Plot Neptune and reach the final beacon (within ${km(8)}) to finish the survey.`,
+      `The route is ${km(BODIES.neptune.route)}. Only the longest-range hulls can fly it.`,
     ],
     landing: [
       "The deepest cloud-deck landing pays the biggest landing multiplier.",
@@ -164,17 +165,17 @@ function deepGuide(): Guide {
     summary: "Open space beyond Neptune. Nothing to land on: fly to each gate and log its beacon.",
     facts: [
       { label: "Gates", value: String(gates.length) },
-      { label: "Routes", value: first.route + "-" + last.route + " su" },
+      { label: "Routes", value: km(first.route).replace(" km", "") + "-" + km(last.route) },
       { label: "Landing", value: "None" },
     ],
     sections: [
-      { title: "Gates", lines: gates.map((d) => d.name + " · " + d.route + " su · needs " + gateShip(d.route).name) },
+      { title: "Gates", lines: gates.map((d) => d.name + " · " + km(d.route) + " · needs " + gateShip(d.route).name) },
       {
         title: "Getting there",
         lines: [
           "Open the Solar chart, pick a gate and set it as the nav target. Only the galaxy-class hulls have the range, and they open in the garage after the Neptune survey.",
           "Raise throttle until you reach cruise speed, then cut it. There is no drag in open space, so the ship coasts and burns no fuel.",
-          "Passing within 8 su of a gate's beacon logs it. The gates can be flown in any order.",
+          `Passing within ${km(8)} of a gate's beacon logs it. The gates can be flown in any order.`,
         ],
       },
       {
@@ -195,12 +196,13 @@ export function guideFor(place: PlaceId): Guide {
   const mult = BODY_MULT[place] ?? 1;
   const facts: Guide["facts"] = [];
   if (place !== "earth") {
-    facts.push({ label: "Route", value: `${def.route} su` });
+    facts.push({ label: "Route", value: km(def.route) });
     facts.push({ label: "Needs", value: gateShip(def.route).name });
   }
   facts.push({ label: "Gravity", value: `${def.g}` });
-  facts.push({ label: "Type", value: def.gas ? "Cloud deck" : def.atmo > 0 ? "Rock, thin air" : "Rock, airless" });
-  facts.push({ label: "Landing pay", value: `x${mult}` });
+  facts.push({ label: "Type", value: place === "earth" ? "Home world" : def.gas ? "Cloud deck" : def.atmo > 0 ? "Rock, thin air" : "Rock, airless" });
+  // ui-review-v1: Earth par landing bonus ka "x0.25" confusing tha, sirf baqi planets par dikhao
+  if (place !== "earth") facts.push({ label: "Landing bonus", value: `x${mult}` });
 
   const sections: GuideSection[] = [
     { title: "Getting there", lines: s.reach },

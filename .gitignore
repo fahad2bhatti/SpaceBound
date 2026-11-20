@@ -3,3 +3,5 @@ dist
 apply_*.mjs
 *.bak
 .DS_Store
+android/keystore.properties
+*.jks

@@ -2,7 +2,7 @@
 import type { AgeGroup } from "./save";
 
 /** Terms badalne par is number ko badhao: sab players se dobara accept karwaya jayega. */
-export const TERMS_VERSION = 1;
+export const TERMS_VERSION = 2;
 
 /** Apna contact email yahan likho (khali ho to terms mein contact line nahi dikhti). */
 export const CONTACT_EMAIL = "";
@@ -14,7 +14,7 @@ export const TERMS_SECTIONS: { title: string; body: string }[] = [
   },
   {
     title: "Your data",
-    body: "The game works offline. Your progress and settings are saved only on this device. We do not ask for your name, email or an account, we do not collect personal data, and there are no ads or tracking. If you uninstall the app or clear its data, your progress is lost. If online features (like leaderboards) are added later, you will be asked first and these terms will be updated.",
+    body: "Your progress and settings are saved only on this device. We do not ask for your name, email or an account. The game shows ads (Google AdMob) to players aged 13 and over. Google may use your device's advertising ID and approximate location to show and measure ads, and may ask for your consent where the law requires it. Players under 13 see no ads. If you uninstall the app or clear its data, your progress is lost.",
   },
   {
     title: "Age",
@@ -22,7 +22,7 @@ export const TERMS_SECTIONS: { title: string; body: string }[] = [
   },
   {
     title: "Credits and items",
-    body: "Credits, ships and upgrades exist only inside the game. They have no real-world value and cannot be bought, sold or cashed out.",
+    body: "Credits, ships and upgrades exist only inside the game. They are earned by playing, have no real-world value and cannot be sold or cashed out.",
   },
   {
     title: "Fair use",

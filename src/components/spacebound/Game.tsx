@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { initAds, setBanner } from "@/game/ads"; // admob-v1
 import { Welcome } from "./Welcome"; // welcome-gate-v1
 import {
   Award,
@@ -159,6 +160,17 @@ export function Game() {
     e.audio.unlock();
     fn(e);
   };
+
+  // admob-v1: age group + terms ke baad ads init; banner sirf main menu par.
+  const adAge = snap?.ageGroup ?? null;
+  const adGate = snap ? snap.gate : true;
+  const adMenu = !!snap && snap.screen === "menu" && !snap.gate;
+  useEffect(() => {
+    if (!adGate && adAge) void initAds(adAge);
+  }, [adGate, adAge]);
+  useEffect(() => {
+    void setBanner(adMenu);
+  }, [adMenu]);
 
   return (
     <main className="fixed inset-0 overflow-hidden bg-bg text-fg">

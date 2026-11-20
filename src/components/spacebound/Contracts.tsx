@@ -4,6 +4,7 @@ import { Check, ChevronDown, ChevronUp, Clock } from "lucide-react";
 import { BODIES, formatClock, formatInt } from "@/game/catalog";
 import type { Spacebound, Snap } from "@/game/engine";
 import type { BoardCard, Difficulty, FailReason, MeterView } from "@/game/contracts/types";
+import { canOfferRewarded, showRewarded } from "@/game/ads"; // admob-v1
 
 type Act = (fn: (e: Spacebound) => void) => void;
 
@@ -193,6 +194,8 @@ export function ContractBoard({ snap, act }: { snap: Snap; act: Act }) {
 
 /** Full-screen success / failure card. Shown after the landing report modal (if any) is dismissed. */
 export function ContractResultView({ snap, act }: { snap: Snap; act: Act }) {
+  const [adBusy, setAdBusy] = useState(false); // admob-v1
+  const [adMsg, setAdMsg] = useState("");
   const r = snap.contracts.result;
   if (!r || snap.modal) return null;
   const ok = r.kind === "success";
@@ -212,6 +215,27 @@ export function ContractResultView({ snap, act }: { snap: Snap; act: Act }) {
               </p>
             )}
             <p className="mt-2 text-sm text-muted">Time on contract {formatClock(r.elapsed)}.</p>
+            {snap.adBonus && snap.adBonus.claimed && (
+              <p className="mt-2 text-sm text-primary">Ad bonus collected: +{formatInt(snap.adBonus.amount)} CR</p>
+            )}
+            {snap.adBonus && !snap.adBonus.claimed && canOfferRewarded() && (
+              <button
+                type="button"
+                disabled={adBusy}
+                className="mt-3 min-h-11 w-full border border-primary px-3 font-display text-base uppercase text-primary disabled:opacity-50"
+                onClick={async () => {
+                  setAdBusy(true);
+                  setAdMsg("");
+                  const out = await showRewarded();
+                  setAdBusy(false);
+                  if (out === "earned") act((e) => e.claimAdBonus());
+                  else if (out === "unavailable") setAdMsg("Ad is not ready yet. Try again in a moment.");
+                }}
+              >
+                Watch ad: +{formatInt(snap.adBonus.amount)} CR
+              </button>
+            )}
+            {adMsg && <p className="mt-1 text-xs text-muted">{adMsg}</p>}
             {r.unlocked.length > 0 && <p className="mt-2 text-sm text-accent">New contract unlocked: {r.unlocked.join(", ")}.</p>}
           </>
         ) : (

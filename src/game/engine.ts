@@ -50,6 +50,7 @@ import type { ContractResult, ContractsSnap, SpotView, WorldProbe } from "./cont
 import { KIND_LABEL, PLANETS, ZONE_COLORS, type ZoneDef, type ZoneKind } from "./planets";
 import { defaultSave, loadSave, writeSave, type AgeGroup, type Quality, type SaveData, type Settings } from "./save";
 import { TERMS_VERSION } from "./terms"; // welcome-gate-v1
+import { onMissionEnd } from "./ads"; // admob-v1
 
 export type Screen = "menu" | "garage" | "missions" | "solar" | "settings" | "credits" | "play" | "pause";
 export type Phase =
@@ -121,6 +122,8 @@ export type Snap = {
   contracts: ContractsSnap;
   /** landing-stars-v1: result of the last touchdown (stars, numbers, bonus, best), null once dismissed. */
   landing: LandingResult | null;
+  /** admob-v1: rewarded-ad bonus for the current contract result (50% of the reward), null when there is none. */
+  adBonus: { amount: number; claimed: boolean } | null;
   /** eva-v1: spacewalk readouts, null outside EVA. */
   eva: {
     range: number;
@@ -228,6 +231,7 @@ export class Spacebound {
   private modalQ: Modal[] = [];
   // landing-stars-v1
   private landing: LandingResult | null = null;
+  private adBonusFor: ContractResult | null = null; // admob-v1
   private landingT = 0;
   private landingId = 0;
   private toastText: string | null = null;
@@ -572,6 +576,7 @@ export class Spacebound {
       zones: this.zoneSnap(),
       contracts: this.contractsSnap(),
       landing: this.landing,
+      adBonus: this.adBonusView(),
       eva: this.evaSnap(),
     };
   }
@@ -3744,10 +3749,31 @@ export class Spacebound {
     this.persist(true);
   }
 
+  /** admob-v1: rewarded ad ka bonus = mission reward ka 50%. Har result par sirf ek baar. */
+  private adBonusView(): { amount: number; claimed: boolean } | null {
+    const r = this.contracts.result;
+    if (!r || r.kind !== "success" || !r.reward) return null;
+    return { amount: Math.max(1, Math.round(r.reward.credits * 0.5)), claimed: this.adBonusFor === r };
+  }
+
+  /** Rewarded ad poora dekhne ke baad UI isko bulata hai. */
+  claimAdBonus(): void {
+    const r = this.contracts.result;
+    const b = this.adBonusView();
+    if (!r || !b || b.claimed) return;
+    this.adBonusFor = r;
+    this.save.credits += b.amount;
+    haptic.success();
+    this.toast(`Ad bonus +${b.amount} CR`);
+    this.persist(true);
+    this.notifyNow = true;
+  }
+
   /** Result screen: "Back" (menu) or "Next" (missions board) after success, "Retry" after a failure. */
   contractResultAction(kind: "retry" | "next" | "back"): void {
     const r = this.contracts.result;
     if (!r) return;
+    onMissionEnd(); // admob-v1
     this.contracts.dismissResult();
     if (kind === "retry") {
       const err = this.contracts.accept(r.id, { retry: true });

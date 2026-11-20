@@ -30,6 +30,8 @@ const TEST_IDS = {
   rewarded: "ca-app-pub-3940256099942544/5224354917",
 };
 const IDS = REAL ? REAL_IDS : TEST_IDS;
+// Apne test phones (logcat: "setTestDeviceIds(...)"). In par real build mein bhi sirf Test Ads aate hain.
+const TEST_DEVICES = ["2E156BE32F915332818795E1E0B91121"];
 
 /** Do interstitials ke beech kam az kam itna gap, aur har doosri mission ke baad hi. */
 const INTERSTITIAL_GAP_MS = 3 * 60 * 1000;
@@ -99,7 +101,8 @@ export function initAds(ageGroup: AgeGroup | null): Promise<void> {
       }
       if (!info.canRequestAds) return;
       await AdMob.initialize({
-        initializeForTesting: TESTING,
+        initializeForTesting: true,
+        testingDevices: TEST_DEVICES,
         tagForChildDirectedTreatment: false,
         tagForUnderAgeOfConsent: teen,
         ...(teen ? { maxAdContentRating: MaxAdContentRating.Teen } : {}),

@@ -10,6 +10,10 @@ const billing = fs.readFileSync("src/game/billing.ts", "utf8");
 if (/const FORCE_TEST_BILLING\s*=\s*true/.test(billing))
   fail("src/game/billing.ts mein FORCE_TEST_BILLING = true hai. Release se pehle false karo, warna sab purchases muft hongi.");
 
+// admob-v1: release build mein real ads hone chahiye (warna Play Store par test ads, kamai zero).
+if (process.env.VITE_ADS_REAL !== "1")
+  fail("VITE_ADS_REAL=1 nahi diya. Release aise banao:  VITE_ADS_REAL=1 npm run android:aab");
+
 if (!fs.existsSync("android/keystore.properties"))
   fail("android/keystore.properties nahi mili. Pehle upload key banao (steps chat mein hain).");
 

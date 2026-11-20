@@ -44,6 +44,13 @@ let lastInter = 0;
 let missionEnds = 0;
 let rewardReady = false;
 let rewardLoading = false;
+let noAds = false; // store-v1: "Remove Ads" / Commander Bundle khareeda hua hai
+
+/** Store ka "Remove Ads" entitlement: banner aur interstitial band. Rewarded (player ki marzi) chalta rahega. */
+export function setAdsRemoved(removed: boolean): void {
+  noAds = removed;
+  if (removed) void setBanner(false);
+}
 
 function native(): boolean {
   return Capacitor.isNativePlatform();
@@ -117,6 +124,7 @@ export function initAds(ageGroup: AgeGroup | null): Promise<void> {
 
 /** Banner sirf main menu par (flight / HUD ke upar kabhi nahi). */
 export async function setBanner(show: boolean): Promise<void> {
+  show = show && !noAds;
   if (!allowed()) return;
   if (initP) await initP;
   if (!inited) return;
@@ -147,7 +155,7 @@ export async function setBanner(show: boolean): Promise<void> {
 /** Mission result card ka button dabane par bulao: har 2nd mission ke baad, 3 min gap ke saath. */
 export function onMissionEnd(): void {
   missionEnds++;
-  if (!inited || !allowed()) return;
+  if (noAds || !inited || !allowed()) return;
   if (missionEnds % 2 !== 0) return;
   if (Date.now() - lastInter < INTERSTITIAL_GAP_MS) return;
   if (!interReady) {

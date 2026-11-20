@@ -57,9 +57,9 @@ export type Resume = {
 /**
  * Save format version. 2 added `contracts` (contracts-v1), 3 added `best` and `badges` (landing-stars-v1).
  * The storage key stays the same and sanitize() is the migration: it fills anything missing with defaults, so
- * v1 / v2 saves load unchanged and come out as version 3.
+ * v1 / v2 saves load unchanged and come out as version 3. 4 added the store (store-v1): nova, ent, orders, paidShips.
  */
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 export type SaveData = {
   version: typeof SAVE_VERSION;
@@ -89,6 +89,14 @@ export type SaveData = {
   resume: Resume | null;
   /** welcome-gate-v1 */
   profile: Profile;
+  /** store-v1: Nova (◆) balance. Asli paise se khareeda: reset / new game par bhi rehta hai. */
+  nova: number;
+  /** store-v1: ek-dafa wale products jo khareede gaye (remove_ads, starter_pack, ...). */
+  ent: string[];
+  /** store-v1: Google order IDs jo de diye gaye (ek order do dafa na mile). */
+  orders: string[];
+  /** store-v1: Nova ya deal se mile ships. Reset / new game par hangar mein wapas aate hain. */
+  paidShips: ShipId[];
 };
 
 const KEY = "spacebound-beyond-earth-v1";
@@ -132,7 +140,25 @@ export function defaultSave(): SaveData {
     badges: [],
     resume: null,
     profile: { ageGroup: null, termsVersion: 0, acceptedAt: 0 },
+    nova: 0,
+    ent: [],
+    orders: [],
+    paidShips: [],
   };
+}
+
+/** store-v1: new game / reset par paise wali cheezein (Nova, purchases, paid ships) nayi save mein le jao. */
+export function keepPaid(from: SaveData, to: SaveData): void {
+  to.nova = from.nova;
+  to.ent = [...from.ent];
+  to.orders = [...from.orders];
+  to.paidShips = [...from.paidShips];
+  for (const id of to.paidShips) {
+    if (!to.owned.includes(id)) {
+      to.owned.push(id);
+      to.fuel[id] = SHIPS[id].fuel;
+    }
+  }
 }
 
 function clamp(n: number, a: number, b: number): number {
@@ -238,6 +264,10 @@ export function sanitize(raw: Partial<SaveData>): SaveData {
       termsVersion: Math.max(0, Math.floor(Number(raw.profile?.termsVersion) || 0)),
       acceptedAt: Math.max(0, Number(raw.profile?.acceptedAt) || 0),
     },
+    nova: Math.max(0, Math.floor(Number(raw.nova) || 0)),
+    ent: Array.isArray(raw.ent) ? raw.ent.filter((x): x is string => typeof x === "string") : [],
+    orders: Array.isArray(raw.orders) ? raw.orders.filter((x): x is string => typeof x === "string").slice(-200) : [],
+    paidShips: Array.isArray(raw.paidShips) ? raw.paidShips.filter((x): x is ShipId => typeof x === "string" && x in SHIPS) : [],
   };
 }
 

@@ -95,19 +95,19 @@ t("save: best and badges round-trip through JSON and sanitize", () => {
   assert.deepEqual(back.badges, ["perfect-landing"]);
 });
 
-t("migration: v2 and v1 saves load as version 3 with empty best, nothing else lost", () => {
+t("migration: v2 and v1 saves load as version 4 with empty best, nothing else lost", () => {
   const v2 = { ...defaultSave(), version: 2, credits: 4321, done: ["x"] } as Record<string, unknown>;
   delete v2.best;
   delete v2.badges;
   const m2 = sanitize(v2 as never);
-  assert.equal(SAVE_VERSION, 3);
-  assert.equal(m2.version, 3);
+  assert.equal(SAVE_VERSION, 4);
+  assert.equal(m2.version, 4);
   assert.deepEqual(m2.best, {});
   assert.deepEqual(m2.badges, []);
   assert.equal(m2.credits, 4321);
   assert.deepEqual(m2.done, ["x"]);
   const m1 = sanitize({ started: true, credits: 77 } as never);
-  assert.equal(m1.version, 3);
+  assert.equal(m1.version, 4);
   assert.deepEqual(m1.best, {});
   assert.equal(m1.credits, 77);
 });

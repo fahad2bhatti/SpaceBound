@@ -48,11 +48,13 @@ import { shareResult, shareText } from "./share";
 import { ContractManager } from "./contracts/manager";
 import type { ContractResult, ContractsSnap, SpotView, WorldProbe } from "./contracts/types";
 import { KIND_LABEL, PLANETS, ZONE_COLORS, type ZoneDef, type ZoneKind } from "./planets";
-import { defaultSave, loadSave, writeSave, type AgeGroup, type Quality, type SaveData, type Settings } from "./save";
+import { defaultSave, keepPaid, loadSave, writeSave, type AgeGroup, type Quality, type SaveData, type Settings } from "./save";
+import { billing, type Paid } from "./billing"; // store-v1 / billing-v1
+import { adsRemoved, buyShipWithNova, grantProduct, PRODUCT, storeAllowed } from "./store"; // store-v1
 import { TERMS_VERSION } from "./terms"; // welcome-gate-v1
 import { onMissionEnd } from "./ads"; // admob-v1
 
-export type Screen = "menu" | "garage" | "missions" | "solar" | "settings" | "credits" | "play" | "pause";
+export type Screen = "menu" | "garage" | "missions" | "solar" | "settings" | "credits" | "play" | "pause" | "store";
 export type Phase =
   | "pad"
   | "cockpit"
@@ -89,6 +91,19 @@ export type Snap = {
   /** welcome-gate-v1: true jab tak player age bata kar terms accept na kare. */
   gate: boolean;
   ageGroup: AgeGroup | null;
+  /** store-v1 */
+  store: {
+    allowed: boolean;
+    nova: number;
+    ent: string[];
+    adsRemoved: boolean;
+    /** Jis product ki payment chal rahi hai (button par "..." dikhane ke liye). */
+    busy: string | null;
+    prices: Record<string, string>;
+    mode: "test" | "play";
+    /** Store se mile ships (bik nahi sakte). */
+    paid: ShipId[];
+  };
   confirmReset: boolean;
   modal: Modal | null;
   countdown: number | null;
@@ -165,6 +180,19 @@ const ASSIST_DESC_MIN = 1.8;
 const ASSIST_DRIFT_MIN = 2.2;
 // land-anywhere-v1: touchdown limits for any spot outside a marked zone (same as the easy zones).
 const FREE_LAND = { maxDescent: 6, maxDrift: 4.8 };
+// gas-easy-v1: gas giant (cloud deck) landing asaan. Narm limits, hard impact mushkil, aur neeche "cloud cushion"
+// jo girti hui ship ko khud dheema karta hai (fuel nahi lagta), taake player bas nose up karke aaram se utar jaye.
+const GAS_LAND = {
+  maxDescent: 8, // soft touchdown limit (solid planets: 6)
+  maxDrift: 6, // (solid: 4.8)
+  crashDescent: 14, // hard impact sirf is se tez par (solid: 9)
+  crashDrift: 11, // (solid: 8)
+  cushionAlt: 14, // is altitude se neeche cloud cushion kaam karta hai
+  cushionMin: 4, // cloud deck par max girne ki speed (maxDescent se kam, to touchdown hamesha narm)
+  cushionSlope: 0.55, // upar jitna, utni zyada speed allowed
+  driftMin: 3, // cloud deck par max sideways drift
+  assistAlt: 25, // landing assist gas giant par is altitude se neeche (pehle 10 tha)
+};
 const BODY_IDS: BodyId[] = ["earth", "moon", "mars", "jupiter", "saturn", "uranus", "neptune"];
 // upright-turn-v1: upright rocket = nose up (rotate -90deg about X); gravity turn tilts it about the WORLD X axis.
 // arrow-pitch-v1: ship ab kabhi ulti nahi hoti. Up/Down arrow pitch is limit tak hi jata hai.
@@ -239,6 +267,11 @@ export class Spacebound {
   private flash = 0;
   private confirmNew = false;
   private confirmReset = false;
+  // store-v1
+  private storeBusy: string | null = null;
+  /** Store garage se khula ho to back par garage mein wapas (usi ship par). */
+  private storeFromGarage: ShipId | null = null;
+  private prices: Record<string, string> = {};
   private inspect: ShipId = "starter";
   private chartFocus: DestId = "orbit";
   private checks = { fuel: false, eng: false, nav: false };
@@ -328,6 +361,8 @@ export class Spacebound {
   private liftV = 0;
   private sinceLaunch = 0;
   private orbitHold = 0;
+  /** playtest-v1: pichle bounce ki speed. Bounce ke baad wali landing isi speed se grade hoti hai (warna bounce = S grade). */
+  private bounceDescent = 0;
   private orbitPaid = false;
   private stationPaid = false;
   private inside = new Set<string>();
@@ -400,6 +435,7 @@ export class Spacebound {
     this.save = loadSave();
     this.contracts.bind(this.save.contracts);
     this.inspect = this.save.selected;
+    setTimeout(() => void this.recoverPurchases(), 1500); // billing-v1: adhoori purchases (thoda ruk kar, pehle game khul jaye)
     this.chartFocus = this.save.destination;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -532,6 +568,16 @@ export class Spacebound {
       confirmNew: this.confirmNew,
       gate: this.save.profile.termsVersion < TERMS_VERSION,
       ageGroup: this.save.profile.ageGroup,
+      store: {
+        allowed: storeAllowed(this.save),
+        nova: this.save.nova,
+        ent: this.save.ent,
+        adsRemoved: adsRemoved(this.save),
+        busy: this.storeBusy,
+        prices: this.prices,
+        mode: billing.mode,
+        paid: this.save.paidShips,
+      },
       confirmReset: this.confirmReset,
       modal: this.modalQ[0] ?? null,
       countdown:
@@ -541,9 +587,15 @@ export class Spacebound {
       fuelMax: stats.fuel,
       life: this.life,
       ox: this.ox,
-      altitude: this.phase === "flight" ? this.altitude() : this.liftY,
-      speed: this.phase === "flight" ? this.velLen() : Math.abs(this.walker.speed),
-      climb: this.phase === "flight" ? this.climbRate() : this.liftV,
+      // playtest-v1: liftoff ke waqt liftY scene ka unit hai; flight ke unit mein badlo, warna ALT 3,500 km dikha kar 96 km par gir jaata tha
+      altitude: this.phase === "flight" ? this.altitude() : this.liftY * this.liftToFlight(),
+      speed:
+        this.phase === "flight"
+          ? this.velLen()
+          : this.liftToFlight() !== 1
+            ? Math.abs(this.liftV) * this.liftToFlight()
+            : Math.abs(this.walker.speed),
+      climb: this.phase === "flight" ? this.climbRate() : this.liftV * this.liftToFlight(),
       throttle: this.throttle,
       destDist: this.phase === "flight" ? this.pos().distanceTo(this.targetPoint(this.v5)) : 0,
       objective: mission ? mission.name : "Catalog complete",
@@ -600,7 +652,9 @@ export class Spacebound {
     const settings = { ...this.save.settings };
     const hints = [...this.save.hints];
     const profile = { ...this.save.profile }; // welcome-gate-v1: new game par age/terms dobara na puchho
+    const old = this.save;
     this.save = defaultSave();
+    keepPaid(old, this.save); // store-v1: khareedi hui cheezein new game mein bhi
     this.save.settings = settings;
     this.save.hints = hints;
     this.save.profile = profile;
@@ -657,7 +711,9 @@ export class Spacebound {
     this.audio.ui();
     this.confirmNew = false;
     this.confirmReset = false;
-    if (screen === "garage" || screen === "solar" || screen === "missions" || screen === "settings" || screen === "credits") {
+    if (screen === "store" && !storeAllowed(this.save)) return; // store-v1: 13 se chhote players ke liye nahi
+    if (screen === "store") this.storeFromGarage = this.screen === "garage" ? this.inspect : null;
+    if (screen === "garage" || screen === "solar" || screen === "missions" || screen === "settings" || screen === "credits" || screen === "store") {
       if (this.screen === "menu" || this.screen === "pause" || this.screen === "play") this.backTo = this.screen;
     }
     if (screen === "menu") {
@@ -676,7 +732,8 @@ export class Spacebound {
       this.chartSun = false;
       this.screen = "solar";
       this.useScene(this.solarScene, "solar");
-    } else if (screen === "missions" || screen === "settings" || screen === "credits") {
+    } else if (screen === "missions" || screen === "settings" || screen === "credits" || screen === "store") {
+      if (screen === "store") void this.loadPrices();
       this.screen = screen;
       if (this.view === "flight" || this.view === "pad" || this.view === "surface") {
         /* keep the world behind the panel */
@@ -693,6 +750,16 @@ export class Spacebound {
 
   back(): void {
     this.audio.ui();
+    if (this.screen === "store" && this.storeFromGarage) {
+      // store-v1: garage se aaye the: wapas garage, usi ship par
+      const ship = this.storeFromGarage;
+      this.storeFromGarage = null;
+      this.open("garage");
+      this.inspect = ship;
+      this.mountGarage();
+      this.notifyNow = true;
+      return;
+    }
     const to = this.backTo;
     this.backTo = null;
     if (to === "menu") {
@@ -750,7 +817,9 @@ export class Spacebound {
     const settings = { ...this.save.settings };
     const hints = [...this.save.hints];
     const profile = { ...this.save.profile };
+    const old = this.save;
     this.save = defaultSave();
+    keepPaid(old, this.save); // store-v1: reset sirf game progress mitata hai, khareedi hui cheezein nahi
     this.save.settings = settings;
     this.save.hints = hints;
     this.save.profile = profile;
@@ -765,6 +834,127 @@ export class Spacebound {
     this.notifyNow = true;
   }
 
+  // ---------- store-v1 ----------
+
+  private async loadPrices(): Promise<void> {
+    if (Object.keys(this.prices).length) return;
+    try {
+      this.prices = await billing.prices();
+      this.notifyNow = true;
+    } catch {
+      /* qeematein na milein to card par USD wali dikhegi */
+    }
+  }
+
+  /**
+   * billing-v1: Google ki confirmed purchase player ko do. Pehle item SAVE, phir Google ko finish.
+   * Ek order ID do dafa aaye (listener + recovery) to grantProduct dobara kuch nahi deta, finish phir bhi chalta hai.
+   */
+  private async deliver(p: Paid, restoring = false): Promise<string | null> {
+    const text = grantProduct(this.save, p.productId, p.orderId, restoring);
+    this.persist(true);
+    try {
+      await billing.finish(p);
+    } catch {
+      /* agli game start par unfinished() se dobara finish hoga */
+    }
+    this.notifyNow = true;
+    return text;
+  }
+
+  /** billing-v1: game start par adhoori purchases (crash, pending payment) poori karo. Engine banne ke baad ek dafa. */
+  private async recoverPurchases(): Promise<void> {
+    if (billing.mode !== "play") return;
+    billing.onPurchase((p) => {
+      void this.deliver(p).then((t) => {
+        if (t) {
+          haptic.success();
+          this.toast(t);
+        }
+      });
+    });
+    try {
+      const open = await billing.unfinished();
+      const lines: string[] = [];
+      for (const p of open) {
+        const t = await this.deliver(p);
+        if (t) lines.push(t);
+      }
+      if (lines.length) this.toast(lines.join(" "));
+    } catch {
+      /* Play abhi nahi mila (offline): agli dafa */
+    }
+  }
+
+  /** Asli paise wala product (Nova pack ya deal) khareedo. */
+  async storeBuy(productId: string): Promise<void> {
+    const p = PRODUCT[productId];
+    if (!p || this.storeBusy || !storeAllowed(this.save)) return;
+    if (!p.consumable && this.save.ent.includes(p.id)) {
+      this.toast("You already own this.");
+      return;
+    }
+    this.audio.ui();
+    this.storeBusy = productId;
+    this.notifyNow = true;
+    try {
+      const r = await billing.buy(productId);
+      if (r.status === "ok") {
+        const text = await this.deliver(r.purchase);
+        haptic.success();
+        this.toast(text ?? "Purchase complete.");
+      } else if (r.status === "pending") {
+        this.toast("Payment pending. Your item arrives as soon as Google Play confirms it.");
+      } else if (r.status === "owned") {
+        this.storeBusy = null;
+        await this.restorePurchases();
+        return;
+      } else if (r.status === "error") {
+        this.toast(r.message);
+      }
+    } catch {
+      this.toast("Purchase failed. Please try again.");
+    } finally {
+      this.storeBusy = null;
+      this.notifyNow = true;
+    }
+  }
+
+  /** Nova kharch karke ship (exclusive ya "Unlock now"). */
+  buyShipNova(id: ShipId): void {
+    this.audio.ui();
+    if (!storeAllowed(this.save)) return;
+    const r = buyShipWithNova(this.save, id);
+    this.toast(r.text);
+    if (r.ok) {
+      haptic.success();
+      this.persist(true);
+    }
+    this.notifyNow = true;
+  }
+
+  /** Reinstall ke baad ek-dafa wale purchases Google se wapas lo. */
+  async restorePurchases(): Promise<void> {
+    if (this.storeBusy) return;
+    this.storeBusy = "restore";
+    this.notifyNow = true;
+    try {
+      const owned = await billing.restore();
+      const lines: string[] = [];
+      for (const o of owned) {
+        const t = await this.deliver(o, true);
+        if (t) lines.push(t);
+      }
+      this.persist(true);
+      this.toast(lines.length ? lines.join(" ") : "Nothing new to restore.");
+    } catch {
+      this.toast("Could not reach Google Play. Try again later.");
+    } finally {
+      this.storeBusy = null;
+      this.notifyNow = true;
+    }
+  }
+
   setInspect(id: ShipId): void {
     this.inspect = id;
     this.mountGarage();
@@ -774,6 +964,10 @@ export class Spacebound {
   buy(id: ShipId): void {
     this.audio.ui();
     const ship = SHIPS[id];
+    if (ship.premium) {
+      this.toast(`${ship.name} is a Store exclusive.`);
+      return;
+    }
     if (!isShipUnlocked(this.save.done, ship)) {
       const mission = MISSIONS.find((m) => m.id === ship.unlock);
       this.toast(mission ? `Locked until you complete ${mission.name}.` : "Locked.");
@@ -804,6 +998,10 @@ export class Spacebound {
     }
     if (this.save.owned.length < 2) {
       this.toast("You can't sell your only spacecraft.");
+      return;
+    }
+    if (this.save.paidShips.includes(id)) {
+      this.toast("Ships from the Store can't be sold."); // store-v1
       return;
     }
     const pay = Math.round(SHIPS[id].price * 0.5);
@@ -1936,7 +2134,12 @@ export class Spacebound {
     if (locked && !this.rangeLockToast) {
       this.rangeLockToast = true;
       this.audio.alarm();
-      this.toast("Beyond certified range. Thrust cut. Esc → abort to Earth orbit.");
+      // playtest-v1: phone par Esc key nahi hoti
+      this.toast(
+        matchMedia("(pointer: coarse)").matches
+          ? "Beyond certified range. Thrust cut. Pause → Abort to Earth orbit."
+          : "Beyond certified range. Thrust cut. Esc → abort to Earth orbit.",
+      );
     }
     if (!locked) this.rangeLockToast = false;
     const rcs = this.input.held("Space") || this.input.touch.rcsUp;
@@ -1973,6 +2176,7 @@ export class Spacebound {
     if (sp2 > cap) this.flightV.multiplyScalar(Math.max(cap / sp2, 1 - dt * 0.85));
     this.updateAtmosphere(dt, body, alt, cap);
     this.applyLandingAssist(dt, body, alt);
+    if (BODIES[body].gas) this.cloudCushion(dt, body, alt);
     this.flightPos.addScaledVector(this.flightV, dt);
     this.flightStars?.position.copy(this.flightPos);
     this.resolveGround(body);
@@ -2092,7 +2296,7 @@ export class Spacebound {
     const rig = this.flightRig;
     if (!rig || !this.save.settings.assist || this.fuel <= 0) return;
     if (alt > ASSIST_ALT || this.sinceLaunch < 8) return;
-    if (BODIES[body].gas && alt > 10) return; // gas-landing-v1: flyby ke waqt dakhal nahi, sirf cloud deck ke qareeb
+    if (BODIES[body].gas && alt > GAS_LAND.assistAlt) return; // gas-landing-v1 / gas-easy-v1: flyby ke waqt dakhal nahi, sirf cloud deck ke qareeb
     const up = this.aUp.copy(this.flightPos).sub(this.bodyPos.get(body)!).normalize();
     const climb = this.flightV.dot(up);
     if (climb > 0.5) return;
@@ -2132,6 +2336,20 @@ export class Spacebound {
     if (braked) this.fuel = Math.max(0, this.fuel - this.stats().burn * 0.25 * dt);
   }
 
+  /** gas-easy-v1: gas giant ke cloud deck ke qareeb girti ship ko narmi se rok'ta hai (assist on ho ya off, fuel nahi lagta). */
+  private cloudCushion(dt: number, body: BodyId, alt: number): void {
+    if (alt > GAS_LAND.cushionAlt) return;
+    const up = this.aUp.copy(this.flightPos).sub(this.bodyPos.get(body)!).normalize();
+    const climb = this.flightV.dot(up);
+    if (climb > 0.5) return; // upar ja rahe ho (takeoff): kuch mat karo
+    const maxDown = GAS_LAND.cushionMin + Math.max(0, alt) * GAS_LAND.cushionSlope;
+    if (-climb > maxDown) this.flightV.addScaledVector(up, (-maxDown - climb) * Math.min(1, dt * 6));
+    const hv = this.aHoriz.copy(this.flightV).addScaledVector(up, -this.flightV.dot(up));
+    const hs = hv.length();
+    const maxSide = GAS_LAND.driftMin + Math.max(0, alt) * 0.45;
+    if (hs > maxSide) this.flightV.addScaledVector(hv, -(1 - maxSide / hs) * Math.min(1, dt * 4));
+  }
+
   /** Grade + stars + best score for a successful touchdown. Credits: grade bonus (as before) plus the Perfect Landing bonus. */
   private recordLanding(
     body: BodyId,
@@ -2143,6 +2361,8 @@ export class Spacebound {
     zone: LandingZone | null,
   ): LandingResult {
     const assisted = this.save.settings.assist;
+    descent = Math.max(descent, this.bounceDescent); // playtest-v1: bounce wali landing ko bounce ki speed se grade karo
+    this.bounceDescent = 0;
     const { grade, bonus } = gradeLanding(descent, drift, fuelFrac, assisted, body);
     const rated = rateLanding({ descent, drift, tiltDeg, centerFrac, fuelFrac, assisted });
     const perfectBonus = rated.perfect ? LANDING_CFG.perfect.bonus : 0;
@@ -2206,17 +2426,23 @@ export class Spacebound {
     const def = BODIES[body];
     const center = this.bodyPos.get(body)!;
     const alt = this.flightPos.distanceTo(center) - def.radius;
-    if (alt > 1.15) return;
+    if (alt > 1.15) {
+      if (alt > 8) this.bounceDescent = 0; // bounce ke baad door chale gaye: naya approach
+      return;
+    }
     const up = this.v4.copy(this.flightPos).sub(center).normalize();
     const climb = this.flightV.dot(up);
+    // playtest-v1: zameen se door ja rahe ho (bounce ke baad ya takeoff): yeh landing nahi hai.
+    // Pehle bounce ke agle frame mein "descent 0" wali perfect S landing ban jaati thi.
+    if (climb > 0.3) return;
     const descent = -climb;
     const horiz = this.v5.copy(this.flightV).addScaledVector(up, -climb).length();
     // land-anywhere-v1: every spot on a solid planet is landable. A marked zone only tightens the limits (hard zones) and pays its bonus.
     const lz = this.landingZone(body, true);
     const zone = lz && lz.inside ? lz : null;
-    const maxD = zone ? zone.z.maxDescent : FREE_LAND.maxDescent;
-    const maxH = zone ? zone.z.maxDrift : FREE_LAND.maxDrift;
-    if (descent > 9 || horiz > 8) {
+    const maxD = zone ? zone.z.maxDescent : def.gas ? GAS_LAND.maxDescent : FREE_LAND.maxDescent;
+    const maxH = zone ? zone.z.maxDrift : def.gas ? GAS_LAND.maxDrift : FREE_LAND.maxDrift;
+    if (def.gas ? descent > GAS_LAND.crashDescent || horiz > GAS_LAND.crashDrift : descent > 9 || horiz > 8) {
       // vfx-polish-v1: crash dhamaka + bhaari shake
       const crig = this.ensureFlightRig();
       this.vfx.explosion(this.flightPos, Math.max(2, crig.half.z * crig.group.scale.x * 2));
@@ -2274,11 +2500,20 @@ export class Spacebound {
       return;
     }
     // bounce: straight up from where we hit
-    this.flightPos.copy(center).addScaledVector(up, def.radius + 1.05);
+    this.bounceDescent = Math.max(this.bounceDescent, descent);
+    this.flightPos.copy(center).addScaledVector(up, def.radius + 1.4); // playtest-v1: 1.15 ki touchdown line se upar
     this.flightV.addScaledVector(up, descent + 1.5);
     this.flightV.multiplyScalar(0.45);
     haptic.warn();
     this.toast("Too fast. Hover and bleed speed before touchdown.");
+  }
+
+  /** playtest-v1: liftoff ki height (liftY) ko flight altitude mein badalne ka factor. Handoff par flight 2.4 se shuru hoti hai. */
+  private liftToFlight(): number {
+    if (this.phase !== "liftoff" && this.phase !== "surfaceLiftoff") return 1;
+    const surface = this.phase === "surfaceLiftoff";
+    const upright = !surface && !!this.ensureFlightRig().group.userData.upright;
+    return 2.4 / (surface ? 28 : upright ? 130 : 36);
   }
 
   private trackMissions(dt: number): void {
@@ -2660,7 +2895,10 @@ export class Spacebound {
         this.atmoBody = body;
         this.scanT = 1.2;
         if (this.sinceLaunch > 2.5) {
-          this.toast("Entering " + BODIES[body].name + " " + cfg.label);
+          // gas-easy-v1: gas giant par pehli baar andar aate hi chhota sa tip
+          this.toast(
+            "Entering " + BODIES[body].name + " " + cfg.label + (BODIES[body].gas ? ". Nose up and ease down, the clouds cushion you." : ""),
+          );
           this.audio.ui();
           haptic.tap();
         }
@@ -3830,7 +4068,7 @@ export class Spacebound {
     if (mission.id === "reach-orbit") return `Hold the band  ${this.orbitHold.toFixed(1)} / 6 s`;
     if (mission.id === "moon-samples") return `Samples ${this.save.samples.moon ?? 0} / 3`;
     if (mission.id === "mars-samples") return `Samples ${this.save.samples.mars ?? 0} / 3`;
-    if (this.phase === "flight") return `${mission.brief}  ·  ${Math.round(this.flightPos.distanceTo(this.targetPoint(this.v5)))} su out`;
+    if (this.phase === "flight") return `${mission.brief}  ·  ${km(this.flightPos.distanceTo(this.targetPoint(this.v5)))} out`;
     return mission.brief;
   }
 

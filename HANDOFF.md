@@ -113,3 +113,12 @@ Branch feature/eva (built on feature/rescue-eva). Contract content lives in `src
 3. Performance: lower default graphics on phones, optional FPS counter.
 4. Signed release build (keystore) for Play Store: AAB, Play developer account ($25 one-time).
 5. Optional: open a Pull Request fix-all-app -> main.
+
+## Ship looks: paint and stickers (looks-v1, branch feature/ship-looks)
+- Cosmetic only. The stock look is free and is the default; every other paint and sticker costs Nova and is bought once, then works on every ship the player owns. Nothing changes speed, fuel or range.
+- `src/game/cosmetics.ts`: data (`PAINTS`, `STICKERS`, prices) and pure functions (`lookOf`, `lookCost`, `buyAndEquip`, `sanitizeCosmetics`, `sanitizeLooks`). Prices are in this file.
+- `src/game/livery.ts`: the 3D part. `applyLook(rig, assets, look)` swaps the ship's main body material and accent material for tinted copies (shared materials are never touched) and puts a decal on each side of the hull, placed by a ray against the hull. Sticker pictures are drawn with canvas once. It never throws; on a problem the ship stays stock.
+- `models.ts`: `buildShip(id, assets, look?)` now builds the base ship, then applies the look. The engine passes the look at every call (menu, pad, garage, flight, surface); the flight rig is rebuilt when the look changes (`rigKey`).
+- Save: `cosmetics` (bought ids) and `looks` (per ship). Same save version 4, `sanitize()` fills them in for older saves; `keepPaid()` keeps them on new game / reset. A look that uses a part that is not owned falls back to stock.
+- Garage UI: `LookPicker` in Game.tsx. Tapping a paint or sticker previews it on the ship (`previewLook`), then Equip / Buy (`confirmLook`) or Undo (`cancelLook`). If Nova is short the button opens the Store Nova tab. Hidden for under-13 players (no Store).
+- Tests: `npx tsx scripts/looks.test.mts` (pure logic). Not verified on a phone yet: how the paint looks on each of the 12 ships (the body / accent guess is by material volume), decal position and size (some ships may need a tuned spot), sticker pictures, garage layout on small landscape screens.

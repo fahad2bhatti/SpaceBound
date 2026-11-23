@@ -6,6 +6,7 @@ import {
   type ShipId,
   type Upgrade,
 } from "./catalog";
+import { sanitizeCosmetics, sanitizeLooks, type ShipLook } from "./cosmetics";
 import { HINT_IDS } from "./hints";
 import { defaultContractsSave, sanitizeContracts } from "./contracts/state";
 import type { ContractsSave } from "./contracts/types";
@@ -58,6 +59,7 @@ export type Resume = {
  * Save format version. 2 added `contracts` (contracts-v1), 3 added `best` and `badges` (landing-stars-v1).
  * The storage key stays the same and sanitize() is the migration: it fills anything missing with defaults, so
  * v1 / v2 saves load unchanged and come out as version 3. 4 added the store (store-v1): nova, ent, orders, paidShips.
+ * Ship looks (looks-v1) added `cosmetics` and `looks` without a new version: sanitize() fills them in for older saves.
  */
 export const SAVE_VERSION = 4;
 
@@ -97,6 +99,10 @@ export type SaveData = {
   orders: string[];
   /** store-v1: Nova ya deal se mile ships. Reset / new game par hangar mein wapas aate hain. */
   paidShips: ShipId[];
+  /** looks-v1: paints and stickers bought with Nova. Kept on reset / new game, like paid ships. */
+  cosmetics: string[];
+  /** looks-v1: what each ship wears. A ship that is not listed has the stock look. */
+  looks: Partial<Record<ShipId, ShipLook>>;
 };
 
 const KEY = "spacebound-beyond-earth-v1";
@@ -144,6 +150,8 @@ export function defaultSave(): SaveData {
     ent: [],
     orders: [],
     paidShips: [],
+    cosmetics: [],
+    looks: {},
   };
 }
 
@@ -153,6 +161,8 @@ export function keepPaid(from: SaveData, to: SaveData): void {
   to.ent = [...from.ent];
   to.orders = [...from.orders];
   to.paidShips = [...from.paidShips];
+  to.cosmetics = [...from.cosmetics];
+  to.looks = { ...from.looks };
   for (const id of to.paidShips) {
     if (!to.owned.includes(id)) {
       to.owned.push(id);
@@ -229,6 +239,7 @@ export function sanitize(raw: Partial<SaveData>): SaveData {
     : (raw.stats?.launches ?? 0) > 0
       ? [...HINT_IDS]
       : [];
+  const cosmetics = sanitizeCosmetics(raw.cosmetics);
   return {
     version: SAVE_VERSION,
     started: Boolean(raw.started),
@@ -268,6 +279,8 @@ export function sanitize(raw: Partial<SaveData>): SaveData {
     ent: Array.isArray(raw.ent) ? raw.ent.filter((x): x is string => typeof x === "string") : [],
     orders: Array.isArray(raw.orders) ? raw.orders.filter((x): x is string => typeof x === "string").slice(-200) : [],
     paidShips: Array.isArray(raw.paidShips) ? raw.paidShips.filter((x): x is ShipId => typeof x === "string" && x in SHIPS) : [],
+    cosmetics,
+    looks: sanitizeLooks(raw.looks, cosmetics),
   };
 }
 

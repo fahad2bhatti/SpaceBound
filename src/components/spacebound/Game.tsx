@@ -6,6 +6,7 @@ import {
   ShoppingBag,
   Compass,
   Gauge,
+  Gem,
   Info,
   Map as MapIcon,
   Navigation,
@@ -48,6 +49,7 @@ import { ContractHud, ContractResultView } from "./Contracts";
 import { MissionsScreen } from "./MissionsScreen";
 import { Store, storeStartTab } from "./Store"; // store-v1
 import { novaPrice } from "@/game/store"; // store-v1
+import { PAINTS, STICKERS } from "@/game/cosmetics"; // looks-v1
 import { SUN_GUIDE } from "@/game/guide";
 import { LandingPanel } from "./Landing";
 // phone-fix-map-v1
@@ -468,6 +470,7 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
             <UpgradeRow slot="nav" label="Navigation" level={up.nav} ship={ship.id} credits={snap.credits} act={act} />
           </div>
         )}
+        {owned && snap.store.allowed && <LookPicker snap={snap} act={act} />}
       </aside>
       <div className="sb-garage-view">
         <div className="sb-garage-strip pointer-events-auto">
@@ -496,6 +499,92 @@ function Garage({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) 
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+const hex = (n: number): string => "#" + n.toString(16).padStart(6, "0");
+
+/** looks-v1: paint and sticker for the ship in the garage. Stock is free; the rest cost Nova. Cosmetic only. */
+function LookPicker({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => void }) {
+  const { shown, saved, cost, owned } = snap.looks;
+  const nova = snap.store.nova;
+  const changed = shown.paint !== saved.paint || shown.sticker !== saved.sticker;
+  const label = (id: string, price: number) => (price === 0 ? "Free" : owned.includes(id) ? "Owned" : "");
+  const chip = (active: boolean) =>
+    "flex min-h-11 items-center gap-2 border px-2 py-1 text-left " + (active ? "border-primary bg-primary/15" : "border-line bg-surface");
+  return (
+    <div className="sb-garage-looks grid gap-2">
+      <p className="font-display text-sm tracking-widest text-primary">PAINT</p>
+      <div className="flex flex-wrap gap-2">
+        {PAINTS.map((p) => (
+          <button key={p.id} type="button" className={chip(shown.paint === p.id)} onClick={() => act((e) => e.previewLook({ paint: p.id }))}>
+            <span
+              className="size-5 shrink-0 border border-line"
+              style={{
+                background:
+                  p.id === "stock"
+                    ? "linear-gradient(135deg, #e7eef2 50%, #e8893a 50%)"
+                    : `linear-gradient(135deg, ${hex(p.hull)} 50%, ${hex(p.accent)} 50%)`,
+              }}
+            />
+            <span className="text-xs leading-tight">
+              <span className="block">{p.name}</span>
+              <span className="block text-muted">
+                {label(p.id, p.nova) || (
+                  <span className="inline-flex items-center gap-1">
+                    <Gem className="size-3" />
+                    {formatInt(p.nova)}
+                  </span>
+                )}
+              </span>
+            </span>
+          </button>
+        ))}
+      </div>
+      <p className="font-display text-sm tracking-widest text-primary">STICKER</p>
+      <div className="flex flex-wrap gap-2">
+        {STICKERS.map((st) => (
+          <button key={st.id} type="button" className={chip(shown.sticker === st.id)} onClick={() => act((e) => e.previewLook({ sticker: st.id }))}>
+            <span className="text-xs leading-tight">
+              <span className="block">{st.name}</span>
+              <span className="block text-muted">
+                {label(st.id, st.nova) || (
+                  <span className="inline-flex items-center gap-1">
+                    <Gem className="size-3" />
+                    {formatInt(st.nova)}
+                  </span>
+                )}
+              </span>
+            </span>
+          </button>
+        ))}
+      </div>
+      {changed && (
+        <div className="grid grid-cols-2 gap-2">
+          <Cmd onClick={() => act((e) => e.cancelLook())}>Undo</Cmd>
+          {cost === 0 ? (
+            <Cmd tone="accent" onClick={() => act((e) => e.confirmLook())}>
+              Equip
+            </Cmd>
+          ) : nova >= cost ? (
+            <Cmd tone="accent" onClick={() => act((e) => e.confirmLook())}>
+              Buy ◆ {formatInt(cost)}
+            </Cmd>
+          ) : (
+            <Cmd
+              tone="accent"
+              onClick={() => {
+                storeStartTab("nova");
+                act((e) => e.open("store"));
+              }}
+            >
+              Need ◆ {formatInt(cost - nova)} · Store
+            </Cmd>
+          )}
+        </div>
+      )}
+      <p className="text-xs text-muted">Looks are only for show. They never change speed, fuel or range.</p>
     </div>
   );
 }

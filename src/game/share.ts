@@ -2,7 +2,7 @@
 export const SHARE_CONFIG = {
   gameName: "SpaceBound",
   /** Placeholder: replace with the Play Store / website link when the game is published. */
-  url: "https://github.com/fahad2bhatti/SpaceBound",
+  url: "https://play.google.com/store/apps/details?id=com.fahadapps.spacebound",
   title: "SpaceBound landing",
 } as const;
 

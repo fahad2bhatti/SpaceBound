@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import type { Assets } from "./assets";
 import type { BodyId, DeepId, ShipId } from "./catalog";
+import { STOCK_LOOK, type ShipLook } from "./cosmetics";
+import { applyLook } from "./livery";
 
 export type AstronautRig = {
   group: THREE.Group;
@@ -132,7 +134,14 @@ function finish(
   return { group, flames, hull, interior, hatch, cockpitPos: cockpit, lookPos: look, half, light };
 }
 
-export function buildShip(id: ShipId, a: Assets): ShipRig {
+/** A ship with its paint and sticker on (looks-v1). Without [look] it is the stock ship. */
+export function buildShip(id: ShipId, a: Assets, look: ShipLook = STOCK_LOOK): ShipRig {
+  const rig = buildBaseShip(id, a);
+  applyLook(rig, a, look);
+  return rig;
+}
+
+function buildBaseShip(id: ShipId, a: Assets): ShipRig {
   const g = new THREE.Group();
   const m = a.mats;
   if (id === "starter") {

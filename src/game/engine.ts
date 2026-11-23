@@ -48,6 +48,7 @@ import { shareResult, shareText } from "./share";
 import { ContractManager } from "./contracts/manager";
 import type { ContractResult, ContractsSnap, SpotView, WorldProbe } from "./contracts/types";
 import { KIND_LABEL, PLANETS, ZONE_COLORS, type ZoneDef, type ZoneKind } from "./planets";
+import { buyAndEquip, cleanLook, lookCost, lookOf, paintById, stickerById, type ShipLook } from "./cosmetics"; // looks-v1
 import { defaultSave, keepPaid, loadSave, writeSave, type AgeGroup, type Quality, type SaveData, type Settings } from "./save";
 import { billing, type Paid } from "./billing"; // store-v1 / billing-v1
 import { adsRemoved, buyShipWithNova, grantProduct, PRODUCT, storeAllowed } from "./store"; // store-v1
@@ -104,6 +105,8 @@ export type Snap = {
     /** Store se mile ships (bik nahi sakte). */
     paid: ShipId[];
   };
+  /** looks-v1: what the inspected ship wears now (shown), what it has saved, and the Nova still to pay for shown. */
+  looks: { shown: ShipLook; saved: ShipLook; cost: number; owned: string[] };
   confirmReset: boolean;
   modal: Modal | null;
   countdown: number | null;
@@ -273,6 +276,8 @@ export class Spacebound {
   private storeFromGarage: ShipId | null = null;
   private prices: Record<string, string> = {};
   private inspect: ShipId = "starter";
+  /** looks-v1: a paint / sticker being tried on in the garage. Not saved until the player confirms. */
+  private lookPreview: ShipLook | null = null;
   private chartFocus: DestId = "orbit";
   private checks = { fuel: false, eng: false, nav: false };
   private notifyNow = true;
@@ -578,6 +583,12 @@ export class Spacebound {
         mode: billing.mode,
         paid: this.save.paidShips,
       },
+      looks: {
+        shown: this.lookFor(this.inspect, true),
+        saved: this.lookFor(this.inspect),
+        cost: lookCost(this.save, this.lookFor(this.inspect, true)),
+        owned: this.save.cosmetics,
+      },
       confirmReset: this.confirmReset,
       modal: this.modalQ[0] ?? null,
       countdown:
@@ -724,6 +735,7 @@ export class Spacebound {
       this.useScene(this.menuScene, "menu");
     } else if (screen === "garage") {
       this.inspect = this.save.selected;
+      this.lookPreview = null;
       this.mountGarage();
       this.screen = "garage";
       this.useScene(this.garageScene, "garage");
@@ -955,8 +967,66 @@ export class Spacebound {
     }
   }
 
+  // ---------- looks-v1: ship paint and stickers ----------
+
+  /** What a ship wears. In the garage the inspected ship shows the preview, if there is one. */
+  private lookFor(id: ShipId, preview = false): ShipLook {
+    if (preview && this.lookPreview && id === this.inspect) return this.lookPreview;
+    return lookOf(this.save, id);
+  }
+
+  /** Changes when the look changes, so the flight model is rebuilt. */
+  private rigKey(id: ShipId): string {
+    const l = lookOf(this.save, id);
+    return `${id}:${l.paint}:${l.sticker}`;
+  }
+
+  /** Try a paint and / or sticker on the ship in the garage. Nothing is bought or saved yet. */
+  previewLook(patch: Partial<ShipLook>): void {
+    if (this.screen !== "garage" || !this.save.owned.includes(this.inspect) || !storeAllowed(this.save)) return;
+    this.audio.ui();
+    const base = this.lookPreview ?? lookOf(this.save, this.inspect);
+    const next = cleanLook({
+      paint: patch.paint && paintById(patch.paint) ? patch.paint : base.paint,
+      sticker: patch.sticker && stickerById(patch.sticker) ? patch.sticker : base.sticker,
+    });
+    this.lookPreview = next;
+    this.mountGarage();
+    this.notifyNow = true;
+  }
+
+  /** Buy what is missing with Nova (if anything) and put the previewed look on the ship. */
+  confirmLook(): void {
+    if (!this.lookPreview || !storeAllowed(this.save)) return;
+    this.audio.ui();
+    const id = this.inspect;
+    const r = buyAndEquip(this.save, id, this.lookPreview);
+    this.toast(r.text);
+    if (r.ok) {
+      haptic.success();
+      this.lookPreview = null;
+      this.persist(true);
+      if (id === this.save.selected) {
+        this.mountPadShip();
+        this.mountMenuShip();
+      }
+      this.mountGarage();
+    }
+    this.notifyNow = true;
+  }
+
+  /** Back to the saved look. */
+  cancelLook(): void {
+    if (!this.lookPreview) return;
+    this.audio.ui();
+    this.lookPreview = null;
+    this.mountGarage();
+    this.notifyNow = true;
+  }
+
   setInspect(id: ShipId): void {
     this.inspect = id;
+    this.lookPreview = null;
     this.mountGarage();
     this.notifyNow = true;
   }
@@ -3223,7 +3293,7 @@ export class Spacebound {
       this.surfaceScene.add(sun);
       this.surfaceScene.add(new THREE.AmbientLight(0xffc8a8, 0.25));
     }
-    this.surfaceRig = buildShip(this.save.selected, this.assets);
+    this.surfaceRig = buildShip(this.save.selected, this.assets, this.lookFor(this.save.selected));
     this.seat(this.surfaceRig, 0, 0, this.terrain.heightAt(0, 0));
     this.surfaceScene.add(this.surfaceRig.group);
     this.surfaceScene.add(this.astro.group);
@@ -3553,7 +3623,7 @@ export class Spacebound {
       this.menuScene.remove(this.menuRig.group);
       this.disposeObject(this.menuRig.group);
     }
-    this.menuRig = buildShip(this.save.selected, this.assets);
+    this.menuRig = buildShip(this.save.selected, this.assets, this.lookFor(this.save.selected));
     this.menuRig.group.scale.setScalar(0.35);
     this.menuScene.add(this.menuRig.group);
   }
@@ -3563,7 +3633,7 @@ export class Spacebound {
       this.garageScene.remove(this.garageRig.group);
       this.disposeObject(this.garageRig.group);
     }
-    this.garageRig = buildShip(this.inspect, this.assets);
+    this.garageRig = buildShip(this.inspect, this.assets, this.lookFor(this.inspect, true));
     this.seat(this.garageRig, 0, 0, 0);
     this.garageScene.add(this.garageRig.group);
   }
@@ -3573,20 +3643,20 @@ export class Spacebound {
       this.padScene.remove(this.padRig.group);
       this.disposeObject(this.padRig.group);
     }
-    this.padRig = buildShip(this.save.selected, this.assets);
+    this.padRig = buildShip(this.save.selected, this.assets, this.lookFor(this.save.selected));
     this.seat(this.padRig, 0, 0, 1.05, this.save.selected !== "lunar");
     this.padScene.add(this.padRig.group);
     this.baseY.set(this.padRig, this.padRig.group.position.y);
   }
 
   private ensureFlightRig(): ShipRig {
-    if (!this.flightRig || this.flightRig.group.userData.kind !== this.save.selected) {
+    if (!this.flightRig || this.flightRig.group.userData.kind !== this.rigKey(this.save.selected)) {
       if (this.flightRig) {
         this.flightScene.remove(this.flightRig.group);
         this.disposeObject(this.flightRig.group);
       }
-      this.flightRig = buildShip(this.save.selected, this.assets);
-      this.flightRig.group.userData.kind = this.save.selected;
+      this.flightRig = buildShip(this.save.selected, this.assets, this.lookFor(this.save.selected));
+      this.flightRig.group.userData.kind = this.rigKey(this.save.selected);
       this.flightRig.group.scale.setScalar(FLIGHT_SCALE);
       this.flightScene.add(this.flightRig.group);
     }

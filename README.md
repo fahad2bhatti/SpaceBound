@@ -6,7 +6,8 @@ Developed by **Fahad Apps** · Android · Status: Google Play closed testing
 
 ## Features
 
-- **Flight**: countdown and launch, throttle, RCS, pitch and steer, an on-screen destination marker and a solar-system map
+- **Flight**: countdown and launch, throttle, RCS, pitch and steer (the ship goes where the nose points), an on-screen destination marker, a corner mini-map and a solar-system map that shows where you are
+- **Autopilot**: one AUTO button climbs off the planet, flies round planets in the way and slows down at the target. Touch any control to take over
 - **Places**: Earth orbit, Vesper Station, the Moon, Mars, and cloud-deck landings on Jupiter, Saturn, Uranus and Neptune. Flying too close to the Sun overheats the ship
 - **Landing**: 1 to 3 stars per landing, a Perfect Landing bonus, and best scores saved per planet and landing zone
 - **On foot**: explore planet surfaces with an oxygen limit
@@ -68,6 +69,7 @@ npx tsx scripts/landing.test.mts
 npx tsx scripts/looks.test.mts
 npx tsx scripts/missions.test.mts
 npx tsx scripts/welcome.test.mts
+npx tsx scripts/autopilot.test.mts
 npx tsc --noEmit
 ```
 

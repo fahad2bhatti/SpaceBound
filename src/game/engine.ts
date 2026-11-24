@@ -54,6 +54,7 @@ import { billing, type Paid } from "./billing"; // store-v1 / billing-v1
 import { adsRemoved, buyShipWithNova, grantProduct, PRODUCT, storeAllowed } from "./store"; // store-v1
 import { TERMS_VERSION } from "./terms"; // welcome-gate-v1
 import { onMissionEnd } from "./ads"; // admob-v1
+import { plan as apPlan, type ApBody, type ApPhase, type V3 } from "./autopilot"; // autopilot-v1
 
 export type Screen = "menu" | "garage" | "missions" | "solar" | "settings" | "credits" | "play" | "pause" | "store";
 export type Phase =
@@ -142,6 +143,10 @@ export type Snap = {
   landing: LandingResult | null;
   /** admob-v1: rewarded-ad bonus for the current contract result (50% of the reward), null when there is none. */
   adBonus: { amount: number; claimed: boolean } | null;
+  /** autopilot-v1: current autopilot phase, null when the pilot flies. */
+  autopilot: ApPhase | null;
+  /** minimap-v1: where the ship is, in words (Solar chart only). */
+  shipWhere: string;
   /** eva-v1: spacewalk readouts, null outside EVA. */
   eva: {
     range: number;
@@ -162,6 +167,20 @@ export type Snap = {
 };
 
 type LandingZone = { i: number; z: ZoneDef; arc: number; inside: boolean };
+
+/** minimap-v1: top-down (x / z) data for the corner map. */
+export type MiniMapData = {
+  sx: number;
+  sz: number;
+  hx: number;
+  hz: number;
+  tx: number;
+  tz: number;
+  tdist: number;
+  bodies: { id: string; x: number; z: number; r: number; color: string }[];
+  station: { x: number; z: number };
+  sun: { x: number; z: number; r: number };
+};
 
 const PAD = new THREE.Vector3(0.2, 0.38, 0.9).normalize();
 const FLIGHT_SCALE = 0.22;
@@ -208,6 +227,13 @@ const SUN_POS = SUN_DIR.clone().multiplyScalar(SUN_DIST);
 const SUN_WARN = SUN_RADIUS * 3.6;
 const SUN_WALL = SUN_RADIUS * 1.5;
 const FLIGHT_PITCH_LIMIT = THREE.MathUtils.degToRad(75);
+// arcade-flight-v1: ship ki raftar ki simt naak (nose) ki taraf mudti hai, is rate se (1/s). Zyada = tez mudna.
+const ALIGN_RATE = 1.8;
+// freecam-hold-v1: ungli hatane ke baad camera itne second wahin rehti hai, phir dheere se ship ke peeche wapas.
+const FREE_CAM_HOLD = 8;
+// autopilot-v1: naak ko target ki taraf mod'ne ki raftar (1/s), aur brake ki taqat.
+const AP_TURN = 2.2;
+const AP_BRAKE = 1.2;
 const UPRIGHT_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
 const WORLD_X = new THREE.Vector3(1, 0, 0);
 
@@ -331,6 +357,8 @@ export class Spacebound {
   private framedFocus: DestId | null = null; // deep-galaxy-v1: chart focus the camera was last framed for
   private menuT = 0;
   private solarMeshes: THREE.Object3D[] = [];
+  // minimap-v1: Solar chart par "aap yahan hain" marker
+  private solarShip: THREE.Group | null = null;
   // solar-sun-v1: chart mein Sun bhi chunna ja sakta hai (destination nahi, sirf info card)
   private solarSun: THREE.Object3D | null = null;
   private solarSunGroup: THREE.Object3D | null = null;
@@ -379,6 +407,18 @@ export class Spacebound {
   private prevE = false;
   private prevC = false;
   private prevV = false;
+  private prevP = false;
+  // autopilot-v1
+  private ap: { phase: ApPhase } | null = null;
+  private apBodies: ApBody[] = [];
+  private alignV = new THREE.Vector3();
+  private apFwd = new THREE.Vector3();
+  private apUp = new THREE.Vector3();
+  private apX = new THREE.Vector3();
+  private apY = new THREE.Vector3();
+  private apT = new THREE.Vector3();
+  private apBasis = new THREE.Matrix4();
+  private apQ = new THREE.Quaternion();
   private prevEsc = false;
   private footT = 0;
   private screenT = 0;
@@ -405,7 +445,9 @@ export class Spacebound {
   private fcPitch = 0;
   private fcZoom = 1;
   private fcHold = 0;
-  private look = { dx: 0, dy: 0, zoom: 0, active: false };
+  private look = { dx: 0, dy: 0, zoom: 0, active: false, reset: false };
+  /** freecam-hold-v1: double tap se camera tezi se wapas peeche aa rahi hai. */
+  private fcSnap = false;
   private frameWheel = 0;
   // planet-zones-v1
   private zoneNs = new Map<BodyId, THREE.Vector3[]>();
@@ -641,6 +683,8 @@ export class Spacebound {
       landing: this.landing,
       adBonus: this.adBonusView(),
       eva: this.evaSnap(),
+      autopilot: this.ap ? this.ap.phase : null,
+      shipWhere: this.screen === "solar" ? this.shipWhere() : "",
     };
   }
 
@@ -1136,6 +1180,111 @@ export class Spacebound {
     this.notifyNow = true;
   }
 
+  // ---------- autopilot-v1 ----------
+
+  /** AUTO button / P key. */
+  toggleAutopilot(): void {
+    this.audio.ui();
+    if (this.ap) {
+      this.stopAutopilot("Autopilot off. You have control.");
+      return;
+    }
+    if (this.phase !== "flight") {
+      this.toast("Autopilot works in flight.");
+      return;
+    }
+    if (this.outOfRange()) {
+      this.toast("Beyond certified range. Abort to Earth orbit first.");
+      return;
+    }
+    if (this.fuel <= 0) {
+      this.toast("Tanks are empty.");
+      return;
+    }
+    const tg = this.apTarget();
+    if (this.flightPos.distanceTo(tg.t) <= tg.arrive) {
+      this.toast(tg.done);
+      return;
+    }
+    this.ap = { phase: "cruise" };
+    haptic.tap();
+    this.toast(`Autopilot on: flying to ${DESTS[this.save.destination].name}. Touch any control to take over.`);
+    this.notifyNow = true;
+  }
+
+  private stopAutopilot(msg: string | null): void {
+    if (!this.ap) return;
+    this.ap = null;
+    if (msg) this.toast(msg);
+    this.notifyNow = true;
+  }
+
+  /** Where the autopilot flies for the current nav target, and what it says when it gets there. */
+  private apTarget(): { t: THREE.Vector3; arrive: number; body: BodyId | null; floor: number; done: string } {
+    const dest = this.save.destination;
+    const t = this.apT;
+    const er = BODIES.earth.radius;
+    if (dest === "station") return { t: t.copy(this.station), arrive: 5, body: null, floor: 0, done: "Autopilot: Vesper Station reached. You have control." };
+    if (dest === "orbit") return { t: t.copy(PAD).multiplyScalar(er + 10), arrive: 4, body: "earth", floor: 6, done: "Autopilot: in Earth orbit. You have control." };
+    if (dest === "earth") return { t: t.copy(PAD).multiplyScalar(er + 12), arrive: 5, body: "earth", floor: 7, done: "Autopilot: over Northline. Ease down to land." };
+    const id = dest as BodyId;
+    const beacon = this.beacons.get(dest);
+    if (!(id in BODIES)) return { t: t.copy(beacon ?? this.v5.set(0, 0, 0)), arrive: 5, body: null, floor: 0, done: `Autopilot: ${DESTS[dest].name} reached. You have control.` };
+    const def = BODIES[id];
+    if (def.gas) return { t: t.copy(beacon!), arrive: 4, body: id, floor: 5, done: `Autopilot: ${def.name} beacon reached. You have control.` };
+    // Solid planet: hover 12 su above the landing beacon, then the pilot lands.
+    const n = this.apUp.copy(beacon!).sub(this.bodyPos.get(id)!).normalize();
+    return { t: t.copy(beacon!).addScaledVector(n, 12), arrive: 5, body: id, floor: 7, done: `Autopilot: over the ${def.name} landing site. Ease down to land.` };
+  }
+
+  /** One frame of autopilot: turns the nose, returns throttle and brake. Null when it switched itself off. */
+  private autopilotStep(rig: ShipRig, dt: number): { throttle: number; brake: number } | null {
+    if (!this.ap) return null;
+    if (this.outOfRange()) {
+      this.stopAutopilot("Autopilot off: beyond certified range.");
+      return null;
+    }
+    if (this.fuel <= 0) {
+      this.stopAutopilot("Autopilot off: tanks empty.");
+      return null;
+    }
+    const tg = this.apTarget();
+    const p = this.flightPos;
+    const v = this.flightV;
+    const out = apPlan({
+      pos: [p.x, p.y, p.z],
+      vel: [v.x, v.y, v.z],
+      target: [tg.t.x, tg.t.y, tg.t.z],
+      arrive: tg.arrive,
+      cap: this.speedCap(),
+      bodies: this.apBodies,
+      targetBody: tg.body,
+      floor: tg.floor,
+    });
+    if (out.phase === "arrived") {
+      haptic.success();
+      this.stopAutopilot(tg.done);
+      return { throttle: 0, brake: 1 };
+    }
+    if (out.phase !== this.ap.phase) {
+      this.ap.phase = out.phase;
+      this.notifyNow = true;
+    }
+    // Nose towards out.dir, wings level with the local horizon (same basis as orientShip, but eased).
+    const z = this.apFwd.set(out.dir[0], out.dir[1], out.dir[2]);
+    const up = this.referenceUp(this.apUp);
+    const x = this.apX.crossVectors(up, z);
+    if (x.lengthSq() < 1e-8) x.crossVectors(this.apY.set(1, 0, 0), z);
+    x.normalize();
+    const y = this.apY.crossVectors(z, x).normalize();
+    this.apBasis.makeBasis(x, y, z);
+    this.apQ.setFromRotationMatrix(this.apBasis);
+    const k = 1 - Math.exp(-AP_TURN * dt);
+    rig.group.quaternion.slerp(this.apQ, k);
+    this.bank *= 1 - k;
+    return { throttle: out.throttle, brake: out.brake };
+  }
+
   setDest(id: DestId): void {
     this.audio.ui();
     this.chartSun = false;
@@ -1432,6 +1581,9 @@ export class Spacebound {
     const v = this.input.held("KeyV");
     if (v && !this.prevV && this.phase === "flight") this.levelShip(false);
     this.prevV = v;
+    const pk = this.input.held("KeyP");
+    if (pk && !this.prevP && this.phase === "flight") this.toggleAutopilot();
+    this.prevP = pk;
     const rk = this.input.held("KeyR");
     if (rk && !this.prevR) this.scanNow();
     this.prevR = rk;
@@ -2160,13 +2312,14 @@ export class Spacebound {
 
   /** Fresh camera and steering state for every flight start, so a relaunch never inherits the last flight's offset. */
   private resetFlightControls(): void {
+    this.ap = null; // autopilot-v1
     this.fcYaw = 0;
     this.fcPitch = 0;
     this.fcZoom = 1;
     this.fcHold = 0;
     this.steerSm = 0;
     this.pitchSm = 0;
-    this.look = { dx: 0, dy: 0, zoom: 0, active: false };
+    this.look = { dx: 0, dy: 0, zoom: 0, active: false, reset: false };
     this.input.resetLook();
   }
 
@@ -2202,6 +2355,15 @@ export class Spacebound {
       steer += THREE.MathUtils.clamp(-this.clockMouse.x * this.save.settings.sens * 0.35, -1, 1);
       pitch += THREE.MathUtils.clamp(-this.clockMouse.y * this.save.settings.sens * 0.35, -1, 1);
     }
+    // autopilot-v1: koi bhi steer / pitch / throttle input = pilot ne control le liya.
+    const thrInput =
+      this.input.held("KeyW") || this.input.held("KeyS") || (!this.input.hasOverride && Math.abs(this.input.touch.y) > 0.3);
+    if (this.ap && (Math.abs(steer) > 0.05 || Math.abs(pitch) > 0.05 || thrInput)) this.stopAutopilot("Autopilot off. You have control.");
+    const apOut = this.ap ? this.autopilotStep(rig, dt) : null;
+    if (apOut) {
+      steer = 0;
+      pitch = 0;
+    }
     // steer-fix-v1
     // Ship nose is local +Z and the chase cam sits behind it, so rotateY(+) swings the nose to screen-LEFT.
     // A / ArrowLeft (+steer) therefore uses rotateY(+).
@@ -2220,6 +2382,7 @@ export class Spacebound {
     this.bank += (targetBank - this.bank) * Math.min(1, dt * 4);
     this.stabilizeFlight(rig, refUp, dt);
 
+    if (apOut) this.throttle += (apOut.throttle - this.throttle) * Math.min(1, dt * 4);
     if (this.input.held("KeyW") || (!this.input.hasOverride && this.input.touch.y > 0.3))
       this.throttle = Math.min(1, this.throttle + dt * 0.9);
     if (this.input.held("KeyS") || (!this.input.hasOverride && this.input.touch.y < -0.3))
@@ -2233,15 +2396,18 @@ export class Spacebound {
       // playtest-v1: phone par Esc key nahi hoti
       this.toast(
         matchMedia("(pointer: coarse)").matches
-          ? "Beyond certified range. Thrust cut. Pause → Abort to Earth orbit."
-          : "Beyond certified range. Thrust cut. Esc → abort to Earth orbit.",
+          ? "Beyond certified range. Turn back towards Earth to get thrust, or Pause → Abort to Earth orbit."
+          : "Beyond certified range. Turn back towards Earth to get thrust, or Esc → abort to Earth orbit.",
       );
     }
     if (!locked) this.rangeLockToast = false;
+    // rangelock-v1: range lock mein bhi Earth ki taraf (wapas) thrust chalta hai. Sirf aur door jana band hai.
+    this.forward(rig, this.v1);
+    const pushOut = locked && this.v1.dot(this.flightPos) > 0;
     const rcs = this.input.held("Space") || this.input.touch.rcsUp;
     const rcsDn = this.input.held("ShiftLeft") || this.input.held("ShiftRight") || this.input.touch.rcsDown;
     let burn = 0;
-    if (!locked && this.fuel > 0 && this.throttle > 0.02) burn += stats.burn * this.throttle * dt;
+    if (!pushOut && this.fuel > 0 && this.throttle > 0.02) burn += stats.burn * this.throttle * dt;
     if (this.fuel > 0 && (rcs || rcsDn)) burn += stats.burn * 0.35 * dt;
     this.fuel = Math.max(0, this.fuel - burn);
     if (this.fuel <= 0) this.throttle = 0;
@@ -2249,8 +2415,20 @@ export class Spacebound {
     this.forward(rig, this.v1);
     const cap = this.speedCap();
     const speed = this.flightV.length();
-    if (!locked && this.fuel > 0 && this.throttle > 0.02 && speed < cap) {
+    if (!pushOut && this.fuel > 0 && this.throttle > 0.02 && speed < cap) {
       this.flightV.addScaledVector(this.v1, stats.accel * this.throttle * dt);
+    }
+    // arcade-flight-v1: ship wahi jati hai jidhar naak hai. Raftar wahi rehti hai, sirf simt dheere dheere naak ki taraf mudti hai.
+    // (Pehle turn karne par ship purani simt mein seedhi chalti rehti thi.) Range lock ya khali tank par yeh band.
+    if (!pushOut && this.fuel > 0) {
+      const sp = this.flightV.length();
+      if (sp > 0.05) {
+        const k = 1 - Math.exp(-ALIGN_RATE * dt);
+        this.alignV.copy(this.v1).multiplyScalar(sp);
+        this.flightV.lerp(this.alignV, k);
+        const nl = this.flightV.length();
+        if (nl > 1e-6) this.flightV.multiplyScalar(sp / nl);
+      }
     }
     const up = this.outward(this.flightPos, this.dominant(), this.v2);
     if (rcs && this.fuel > 0) this.flightV.addScaledVector(up, 6.5 * dt);
@@ -2271,19 +2449,24 @@ export class Spacebound {
     const sp2 = this.flightV.length();
     if (sp2 > cap) this.flightV.multiplyScalar(Math.max(cap / sp2, 1 - dt * 0.85));
     this.updateAtmosphere(dt, body, alt, cap);
-    this.applyLandingAssist(dt, body, alt);
+    if (apOut && apOut.brake > 0 && this.fuel > 0) {
+      this.flightV.multiplyScalar(Math.max(0, 1 - apOut.brake * AP_BRAKE * dt));
+      this.fuel = Math.max(0, this.fuel - stats.burn * 0.3 * apOut.brake * dt);
+    }
+    if (apOut) this.assistActive = false;
+    else this.applyLandingAssist(dt, body, alt);
     if (BODIES[body].gas) this.cloudCushion(dt, body, alt);
     this.flightPos.addScaledVector(this.flightV, dt);
     this.flightStars?.position.copy(this.flightPos);
     this.resolveGround(body);
     rig.group.position.copy(this.flightPos);
     rig.group.quaternion.normalize();
-    this.glow(rig, locked ? 0 : this.throttle);
+    this.glow(rig, pushOut ? 0 : this.throttle);
     this.heat.position.copy(this.flightPos);
     // vfx-polish-v1: thruster lakeer, re-entry plasma, zameen ki dhool, speed dust, sitaron ki jhilmil
     {
       const L = Math.max(2, rig.half.z * rig.group.scale.x * 2);
-      const thr = locked ? 0 : this.throttle;
+      const thr = pushOut ? 0 : this.throttle;
       this.exhaust(rig, this.vp);
       this.forward(rig, this.vb).negate();
       this.vfx.thrust(this.vp, this.vb, this.flightV, thr, L, dt);
@@ -2307,7 +2490,7 @@ export class Spacebound {
       }
     }
     if (alt < 8 && this.throttle > 0.35 && body === "earth") this.burst(rig, 6);
-    this.audio.setThrottle(locked ? 0 : this.throttle);
+    this.audio.setThrottle(pushOut ? 0 : this.throttle);
     this.updateSunHazard(dt);
     this.life -= dt + this.sunHeat * 60 * dt;
     if (this.life <= 0) {
@@ -2652,11 +2835,10 @@ export class Spacebound {
         if (bd < 8) {
           if (!this.flyPaid.has(id)) {
             this.flyPaid.add(id);
-            if (id === "jupiter") this.tryEvent("jupiter-flyby");
-            if (id === "saturn") this.tryEvent("saturn-flyby");
-            if (id === "uranus") this.tryEvent("uranus-survey");
-            if (id === "neptune") this.tryEvent("neptune-survey");
-            this.toast(`${BODIES[id].name} beacon logged.`);
+            const fm = id === "jupiter" ? "jupiter-flyby" : id === "saturn" ? "saturn-flyby" : id === "uranus" ? "uranus-survey" : "neptune-survey";
+            this.tryEvent(fm);
+            // bugfix-v1: pichla mission baqi ho to beacon chup chap "logged" kehta tha aur mission nahi milta tha.
+            this.toast(this.blockedText(fm) ?? `${BODIES[id].name} beacon logged.`);
           }
         } else if (bd > 18) this.flyPaid.delete(id);
       }
@@ -2671,10 +2853,18 @@ export class Spacebound {
           this.flyPaid.add(id);
           const m = MISSIONS.find((x) => x.dest === id);
           if (m) this.tryEvent(m.id);
-          this.toast(DESTS[id].name + " beacon logged.");
+          this.toast((m && this.blockedText(m.id)) ?? DESTS[id].name + " beacon logged.");
         }
       } else if (bd > 18) this.flyPaid.delete(id);
     }
+  }
+
+  /** bugfix-v1: "Finish X first" jab mission ka pichla mission abhi baqi ho. Null = mission khula hai. */
+  private blockedText(id: string): string | null {
+    const def = MISSIONS.find((m) => m.id === id);
+    if (!def?.requires || this.save.done.includes(def.requires)) return null;
+    const req = MISSIONS.find((m) => m.id === def.requires);
+    return `Beacon logged, but "${def.name}" counts only after "${req?.name ?? def.requires}".`;
   }
 
   private tryEvent(id: string): void {
@@ -2712,15 +2902,23 @@ export class Spacebound {
     if (L.zoom) this.fcZoom *= Math.exp(-L.zoom * 0.006);
     if (this.frameWheel) this.fcZoom *= Math.exp(this.frameWheel * 0.0012);
     this.fcZoom = THREE.MathUtils.clamp(this.fcZoom, 0.5, 2.4);
-    if (L.active) this.fcHold = 0;
-    else if (this.frameWheel) this.fcHold = 1.2;
+    // freecam-hold-v1: pehle ungli hat'te hi camera foran wapas aa jati thi. Ab FREE_CAM_HOLD second ruk'ti hai,
+    // double tap par foran wapas, aur "Camera lock" setting mein kabhi khud wapas nahi aati.
+    if (L.reset) this.fcSnap = true;
+    if (L.active && (L.dx || L.dy || L.zoom)) this.fcSnap = false;
+    if (L.active) this.fcHold = FREE_CAM_HOLD;
+    else if (this.frameWheel) this.fcHold = FREE_CAM_HOLD;
     else this.fcHold = Math.max(0, this.fcHold - dt);
-    if (!L.active && this.fcHold <= 0 && !set.camLock) {
+    if (!L.active && (this.fcSnap || (this.fcHold <= 0 && !set.camLock))) {
       this.fcYaw = THREE.MathUtils.euclideanModulo(this.fcYaw + Math.PI, Math.PI * 2) - Math.PI;
-      const k = 1 - Math.exp(-dt / 0.2);
+      const k = 1 - Math.exp(-dt / (this.fcSnap ? 0.15 : 0.7));
       this.fcYaw -= this.fcYaw * k;
       this.fcPitch -= this.fcPitch * k;
       this.fcZoom += (1 - this.fcZoom) * k;
+      if (Math.abs(this.fcYaw) + Math.abs(this.fcPitch) + Math.abs(this.fcZoom - 1) < 0.01) {
+        this.fcSnap = false;
+        this.fcHold = 0;
+      }
     }
   }
 
@@ -3253,6 +3451,7 @@ export class Spacebound {
   }
 
   private enterPad(): void {
+    this.ap = null; // autopilot-v1
     this.cleanupEva();
     this.phase = "pad";
     this.camMode = "chase";
@@ -3282,6 +3481,7 @@ export class Spacebound {
   }
 
   private enterSurface(body: BodyId, fresh: boolean): void {
+    this.ap = null; // autopilot-v1
     this.surfaceBody = body === "earth" ? "moon" : body;
     const sdef = BODIES[this.surfaceBody];
     const kind: "moon" | "mars" | "cloud" = sdef.gas ? "cloud" : this.surfaceBody === "mars" ? "mars" : "moon";
@@ -3438,6 +3638,20 @@ export class Spacebound {
         scene.add(ring);
       }
     });
+    // minimap-v1: ship marker (orange cone + ring), position animSolar mein.
+    {
+      const g = new THREE.Group();
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.45, 1.1, 12), new THREE.MeshBasicMaterial({ color: 0xe8893a }));
+      cone.rotation.x = Math.PI; // nok neeche: "yahan"
+      g.add(cone);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.75, 0.06, 8, 28), new THREE.MeshBasicMaterial({ color: 0xe8893a }));
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = -0.9;
+      ring.name = "shipRing";
+      g.add(ring);
+      scene.add(g);
+      this.solarShip = g;
+    }
     // deep-galaxy-v1: every gate is a spiral galaxy beyond Neptune. The invisible sphere is the click target (userData.dest, like the
     // planets) and carries the tilt and the spin (the loop in animSolar turns every solarMeshes entry about its own y axis).
     for (const id of DEEP_IDS) {
@@ -3603,6 +3817,10 @@ export class Spacebound {
       }
     }
     this.buildZoneNormals();
+    // autopilot-v1: planets (aur Sun) jinke gird ghoom kar jana hai. "clear" = atmosphere ki boundary + thoda.
+    const v3 = (v: THREE.Vector3): V3 => [v.x, v.y, v.z];
+    this.apBodies = BODY_IDS.map((id) => ({ id, c: v3(this.bodyPos.get(id)!), r: BODIES[id].radius, clear: PLANETS[id].boundary + 6 }));
+    this.apBodies.push({ id: "sun", c: v3(SUN_POS), r: SUN_RADIUS, clear: (SUN_WARN * 1.05 - SUN_RADIUS) / 0.8 });
   }
 
   /** Vesper Station, all primitives: a cylinder module along x, two solar panels along +-z, a mast with a dish, an alarm lamp. */
@@ -3774,6 +3992,12 @@ export class Spacebound {
       if (far > 40) this.solarDist = Math.min(CHART_ZOOM_MAX, Math.max(this.solarDist, far * 1.7));
       else if (this.solarDist > 80) this.solarDist = 36;
     }
+    if (this.solarShip) {
+      this.chartShipPos(this.solarShip.position);
+      this.solarShip.position.y += 1.9;
+      const ring = this.solarShip.getObjectByName("shipRing");
+      if (ring && !this.reduce) ring.scale.setScalar(1 + 0.25 * Math.sin(performance.now() * 0.005));
+    }
     if (focus) {
       this.focusRing.position.copy(focus.position);
       this.focusRing.scale.setScalar(this.chartSun ? 3 : ((focus.userData.ringScale as number | undefined) ?? 1));
@@ -3788,6 +4012,86 @@ export class Spacebound {
         corona.forEach((c, i) => c.sprite.scale.setScalar(c.base * (1 + 0.035 * Math.sin(t * (0.8 + i * 0.5) + i))));
       }
     }
+  }
+
+  /** minimap-v1: ship ki asli jagah. Pad / surface par us planet ka centre + thoda upar. */
+  private shipWorld(out: THREE.Vector3): THREE.Vector3 {
+    if (this.phase === "flight" || this.phase === "eva" || this.phase === "liftoff") return out.copy(this.flightPos);
+    if (this.phase.startsWith("surface")) return out.copy(this.bodyPos.get(this.surfaceBody)!);
+    return out.copy(PAD).multiplyScalar(BODIES.earth.radius);
+  }
+
+  /** The two places (planets / gates) nearest to the ship, nearest first, with distances. */
+  private nearestTwo(p: THREE.Vector3): { a: DestId; da: number; b: DestId; db: number } {
+    const list: { id: DestId; d: number }[] = [];
+    for (const id of BODY_IDS) list.push({ id, d: p.distanceTo(this.bodyPos.get(id)!) - BODIES[id].radius });
+    for (const id of DEEP_IDS) list.push({ id, d: p.distanceTo(this.beacons.get(id)!) });
+    list.sort((x, y) => x.d - y.d);
+    return { a: list[0]!.id, da: Math.max(0, list[0]!.d), b: list[1]!.id, db: Math.max(0, list[1]!.d) };
+  }
+
+  /** minimap-v1: orrery (not to scale) par ship: do qareeb tareen jagahon ke beech, faasle ke hisaab se. */
+  private chartShipPos(out: THREE.Vector3): THREE.Vector3 {
+    const p = this.shipWorld(this.v5);
+    const chartOf = (id: DestId) => this.solarMeshes.find((m) => m.userData.dest === id)?.position;
+    if (this.phase.startsWith("surface")) return out.copy(chartOf(this.surfaceBody) ?? out.set(0, 0, 0));
+    const n = this.nearestTwo(p);
+    const a = chartOf(n.a);
+    const b = chartOf(n.b);
+    if (!a) return out.set(0, 0, 0);
+    if (!b) return out.copy(a);
+    const t = n.da / Math.max(1e-6, n.da + n.db);
+    return out.copy(a).lerp(b, Math.min(0.5, t));
+  }
+
+  /** minimap-v1: "Near Mars" jaisi line Solar chart ke panel ke liye. */
+  private shipWhere(): string {
+    if (this.phase.startsWith("surface")) return `On ${BODIES[this.surfaceBody].name}`;
+    if (this.phase !== "flight" && this.phase !== "eva" && this.phase !== "liftoff") return "At Northline, Earth";
+    const n = this.nearestTwo(this.flightPos);
+    const name = DESTS[n.a].name;
+    if (n.da < 60) return `Near ${name} · ${km(n.da)} away`;
+    return `Between ${name} and ${DESTS[n.b].name}`;
+  }
+
+  /** minimap-v1: corner map ka data (top-down, x / z). Har frame UI isko bulata hai, is liye ek hi object dobara use hota hai. */
+  private mm: MiniMapData = {
+    sx: 0,
+    sz: 0,
+    hx: 0,
+    hz: -1,
+    tx: 0,
+    tz: 0,
+    tdist: 0,
+    bodies: [] as { id: string; x: number; z: number; r: number; color: string }[],
+    station: { x: 0, z: 0 },
+    sun: { x: 0, z: 0, r: 0 },
+  };
+  miniMap(): MiniMapData | null {
+    if (this.screen !== "play" || (this.phase !== "flight" && this.phase !== "eva")) return null;
+    const m = this.mm;
+    if (!m.bodies.length) {
+      for (const id of BODY_IDS) {
+        const c = this.bodyPos.get(id)!;
+        m.bodies.push({ id, x: c.x, z: c.z, r: BODIES[id].radius, color: BODIES[id].color });
+      }
+      m.station = { x: this.station.x, z: this.station.z };
+      m.sun = { x: SUN_POS.x, z: SUN_POS.z, r: SUN_RADIUS };
+    }
+    const p = this.phase === "eva" ? this.evaPos : this.flightPos;
+    m.sx = p.x;
+    m.sz = p.z;
+    const rig = this.flightRig;
+    if (rig) {
+      const f = this.forward(rig, this.v5);
+      m.hx = f.x;
+      m.hz = f.z;
+    }
+    const t = this.targetPoint(this.v5);
+    m.tx = t.x;
+    m.tz = t.z;
+    m.tdist = p.distanceTo(t);
+    return m;
   }
 
   private pickSolar(click: { x: number; y: number }): void {

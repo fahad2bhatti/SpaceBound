@@ -413,3 +413,18 @@ main:has(.sb-landing) .sb-toast { display: none; }
   .sb-store-price { min-height: 2.25rem; font-size: 1rem; }
   .sb-store .min-h-10 { min-height: 2.1rem; }
 }
+
+/* minimap-v1: corner map + right column */
+.sb-minimap-cv { width: 8rem; height: 8rem; }
+.sb-wp-pulse { animation: sb-wp-pulse 1.4s ease-in-out infinite; }
+@keyframes sb-wp-pulse {
+  0%, 100% { transform: rotate(45deg) scale(1); }
+  50% { transform: rotate(45deg) scale(1.18); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sb-wp-pulse { animation: none; }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  .sb-rightcol { right: 0.75rem; top: 0.75rem; gap: 0.3rem; }
+  .sb-minimap-cv { width: 4.75rem; height: 4.75rem; }
+}

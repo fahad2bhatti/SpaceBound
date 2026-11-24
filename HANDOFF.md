@@ -134,3 +134,19 @@ Branch feature/eva (built on feature/rescue-eva). Contract content lives in `src
 - Save: `cosmetics` (bought ids) and `looks` (per ship). Same save version 4, `sanitize()` fills them in for older saves; `keepPaid()` keeps them on new game / reset. A look that uses a part that is not owned falls back to stock.
 - Garage UI: `LookPicker` in Game.tsx. Tapping a paint or sticker previews it on the ship (`previewLook`), then Equip / Buy (`confirmLook`) or Undo (`cancelLook`). If Nova is short the button opens the Store Nova tab. Hidden for under-13 players (no Store).
 - Tests: `npx tsx scripts/looks.test.mts` (pure logic). Not verified on a phone yet: how the paint looks on each of the 12 ships (the body / accent guess is by material volume), decal position and size (some ships may need a tuned spot), sticker pictures, garage layout on small landscape screens.
+
+## Flight controls, autopilot, mini-map (2026-11-24)
+- **Arcade flight** (`arcade-flight-v1`, engine.ts updateFlight): the velocity turns towards the nose at `ALIGN_RATE` (1.8/s), speed kept.
+  Off when range-locked or out of fuel. Before this, turning only rotated the nose and the ship kept drifting the old way.
+- **Autopilot** (`autopilot-v1`): pure planner in `src/game/autopilot.ts` (no three.js): climb out of a planet, detour round planets / the Sun,
+  cruise, brake early near the target, report "arrived". Engine: `toggleAutopilot()` (AUTO button, P key), `apTarget()` (hover 12 su over a
+  landing beacon, the flyby beacon for gas giants, the station, the gate), `autopilotStep()` (eases the nose, sets throttle, brakes).
+  Any steer / pitch / throttle input hands control back. Landing assist is skipped while it flies. It never lands by itself.
+  Tests: `npx tsx scripts/autopilot.test.mts` flies 13 real routes with a copy of the flight model (keep its numbers in step with engine.ts).
+- **Mini-map** (`minimap-v1`): `src/components/spacebound/MiniMap.tsx`, canvas, heading-up, target diamond / rim arrow, tap = Solar chart.
+  Data from `engine.miniMap()`. The HUD right column is now one flex column (mini-map + target box, landing zones under them).
+- **Solar chart**: orange "you are here" marker (`chartShipPos`, placed between the two nearest planets / gates, the orrery is not to scale)
+  and a "You: near Mars" line (`shipWhere`).
+- **Flyby feedback**: a beacon passed before its previous mission now says which mission must be done first (`blockedText`).
+- **Takeoff**: leaving the planet that was the nav target sets the target to Earth (`enterFlightFrom`).
+- Not verified on a phone yet: alignment feel (ALIGN_RATE), autopilot turn speed near gas giants, mini-map size on small landscape screens.

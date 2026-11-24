@@ -42,6 +42,7 @@ import {
   type Upgrade,
 } from "@/game/catalog";
 import { Spacebound, type Snap } from "@/game/engine";
+import { MiniMap } from "./MiniMap"; // minimap-v1
 import { haptic } from "@/game/haptics";
 import { pickHint } from "@/game/hints";
 import { placeWaypoint } from "@/game/waypoint";
@@ -211,7 +212,7 @@ export function Game() {
         {snap && snap.screen === "store" && <Store snap={snap} act={act} />}
         {snap && snap.screen === "pause" && <Pause snap={snap} act={act} />}
         {snap && (snap.screen === "play" || snap.screen === "pause") && snap.screen === "play" && (
-          <Hud snap={snap} act={act} />
+          <Hud snap={snap} act={act} engineRef={engineRef} />
         )}
         {snap && snap.screen === "play" && !snap.modal && !snap.contracts.result && <Tips snap={snap} act={act} touch={touchUi} />}
         {snap && snap.screen === "play" && <ContractResultView snap={snap} act={act} />}
@@ -271,6 +272,27 @@ export function Game() {
             >
               <MapIcon className="size-6" />
             </button>
+            {snap.phase === "flight" && (
+              // autopilot-v1
+              <button
+                type="button"
+                aria-label="Autopilot"
+                aria-pressed={!!snap.autopilot}
+                className={
+                  snap.autopilot
+                    ? "pointer-events-auto flex min-h-14 min-w-14 touch-none select-none items-center justify-center rounded-xl border border-accent bg-accent/30 px-3 font-display text-sm tracking-wide text-accent"
+                    : "pointer-events-auto flex min-h-14 min-w-14 touch-none select-none items-center justify-center rounded-xl border border-line bg-bg/80 px-3 font-display text-sm tracking-wide"
+                }
+                onClick={() =>
+                  act((e) => {
+                    haptic.tap();
+                    e.toggleAutopilot();
+                  })
+                }
+              >
+                AUTO
+              </button>
+            )}
             {snap.phase === "flight" && (
               <button
                 type="button"
@@ -661,6 +683,8 @@ function Solar({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
         <p className="sb-hide-short mt-2 text-sm text-muted">Drag to orbit the chart. Click a planet or a galaxy, and zoom out to find the galaxies. The orrery is not to scale. Route ratings are.</p>
         <p className="mt-3 font-display text-sm tracking-widest text-primary">{SHIPS[snap.selected].name}</p>
         <p className="text-sm text-fg">Certified range {km(stats.range)}</p>
+        {/* minimap-v1: orange marker on the chart */}
+        <p className="text-sm text-accent">▼ You: {snap.shipWhere}</p>
         {snap.chartSun ? (
           <div className="mt-3 border border-line p-3">
             <h3 className="font-display text-3xl uppercase">{SUN_GUIDE.name}</h3>
@@ -935,7 +959,15 @@ function Pause({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) =
   );
 }
 
-function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => void }) {
+function Hud({
+  snap,
+  act,
+  engineRef,
+}: {
+  snap: Snap;
+  act: (fn: (e: Spacebound) => void) => void;
+  engineRef: React.RefObject<Spacebound | null>;
+}) {
   const fuelPct = Math.max(0, Math.min(100, (snap.fuel / Math.max(1, snap.fuelMax)) * 100));
   const flight = snap.phase === "flight" || snap.phase === "liftoff";
   const surface = snap.phase.startsWith("surface");
@@ -959,10 +991,29 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
         </div>
         <ContractHud snap={snap} />
       </div>
-      <div className="absolute right-4 top-4 border border-line bg-bg/80 p-3 text-right backdrop-blur-md sm:right-6 sm:top-6 sb-dest">
-        <p className="font-display text-xs tracking-widest text-primary">{DESTS[snap.destination].name}</p>
-        <p className="font-display text-xl">{formatClock(snap.life)} LIFE</p>
-        {snap.phase === "flight" && <p className="text-xs text-muted">{km(snap.destDist)} to target</p>}
+      {/* minimap-v1: right column = [mini-map | target box], landing zones neeche. Pehle sab absolute the aur ek doosre par aa jate. */}
+      <div className="pointer-events-none absolute right-4 top-4 flex flex-col items-end gap-2 sm:right-6 sm:top-6 sb-rightcol">
+        <div className="flex items-start gap-2">
+          {(snap.phase === "flight" || snap.phase === "eva") && (
+            <MiniMap
+              engineRef={engineRef}
+              name={DESTS[snap.destination].name}
+              onOpen={() =>
+                act((e) => {
+                  haptic.tap();
+                  e.pause();
+                  e.open("solar");
+                })
+              }
+            />
+          )}
+          <div className="border border-line bg-bg/80 p-3 text-right backdrop-blur-md sb-dest">
+            <p className="font-display text-xs tracking-widest text-primary">{DESTS[snap.destination].name}</p>
+            <p className="font-display text-xl">{formatClock(snap.life)} LIFE</p>
+            {snap.phase === "flight" && <p className="text-xs text-muted">{km(snap.destDist)} to target</p>}
+          </div>
+        </div>
+        {flight && snap.zones && <ZonePanel zones={snap.zones} />}
       </div>
       {flight && snap.freeCam && (
         <p className="pointer-events-none absolute left-1/2 top-[8.5rem] -translate-x-1/2 whitespace-nowrap font-display text-xs tracking-widest text-muted">
@@ -992,7 +1043,7 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
               </Cmd>
             )}
           </div>
-          <p className="sb-hide-short mt-3 text-xs text-muted">W/S throttle · A/D yaw left/right · ↑/↓ pitch · Space/Shift RCS · V level wings · C camera · right-drag look · wheel zoom · Esc hold</p>
+          <p className="sb-hide-short mt-3 text-xs text-muted">W/S throttle · A/D yaw left/right · ↑/↓ pitch · Space/Shift RCS · P autopilot · V level wings · C camera · right-drag look · wheel zoom · Esc hold</p>
         </div>
       )}
       {flight && (
@@ -1013,12 +1064,16 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
       {flight && (
         <p
           className={
-            snap.envelope
+            snap.autopilot
+              ? "sb-status absolute bottom-28 left-1/2 -translate-x-1/2 font-display tracking-widest text-accent"
+              : snap.envelope
               ? "sb-status absolute bottom-28 left-1/2 -translate-x-1/2 font-display tracking-widest text-primary"
               : "sb-status absolute bottom-28 left-1/2 -translate-x-1/2 font-display tracking-widest text-muted"
           }
         >
-          {snap.rangeLocked
+          {snap.autopilot
+            ? "AUTOPILOT · " + (snap.autopilot === "climb" ? "CLIMBING" : snap.autopilot === "approach" ? "SLOWING FOR ARRIVAL" : "CRUISE") + (touchHint() ? "" : " · P")
+            : snap.rangeLocked
             ? "RANGE LOCK"
             : snap.braking
               ? snap.climb < 0
@@ -1037,35 +1092,6 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
         <p className="pointer-events-none absolute bottom-36 left-1/2 -translate-x-1/2 whitespace-nowrap font-display text-xs tracking-widest text-primary sb-atmo-tag">
           {snap.atmo.name.toUpperCase()} {snap.atmo.label.toUpperCase()}
         </p>
-      )}
-      {flight && snap.zones && (
-        <div className="pointer-events-none absolute right-4 top-28 min-w-36 border border-line bg-bg/80 p-2 text-right backdrop-blur-md sb-zone">
-          <p className="font-display text-xs tracking-widest text-primary">
-            LANDING ZONES {snap.zones.found}/{snap.zones.total}
-          </p>
-          {snap.zones.target ? (
-            <div className="mt-1 flex items-center justify-end gap-2">
-              <div>
-                <p className={snap.zones.target.near ? "font-display text-sm uppercase text-[#4ade80]" : "font-display text-sm uppercase"}>
-                  {snap.zones.target.name}
-                </p>
-                <p className="text-xs text-muted">
-                  {snap.zones.target.inside ? "IN ZONE" : snap.zones.target.kind.toUpperCase() + " · " + km(snap.zones.target.dist)}
-                </p>
-              </div>
-              <svg
-                viewBox="0 0 24 24"
-                className={snap.zones.target.near ? "size-7 text-[#4ade80]" : "size-7 text-primary"}
-                style={{ transform: "rotate(" + Math.round((snap.zones.target.angle * 180) / Math.PI) + "deg)" }}
-              >
-                <path d="M12 3 L19 20 L12 16 L5 20 Z" fill="currentColor" />
-              </svg>
-            </div>
-          ) : (
-            <p className="mt-1 text-xs text-muted">No zone found yet</p>
-          )}
-          <p className="text-xs text-muted">Scan in {Math.ceil(snap.zones.scanIn)}s · R</p>
-        </div>
       )}
       {surface && snap.phase === "surface" && (
         <div className={"absolute bottom-6 left-4 border border-line bg-bg/80 p-3 backdrop-blur-md sb-ox" + (snap.contracts.active ? " sb-ox-c" : "")}>
@@ -1118,6 +1144,44 @@ function Hud({ snap, act }: { snap: Snap; act: (fn: (e: Spacebound) => void) => 
       )}
     </>
   );
+}
+
+
+// minimap-v1: landing zone panel ab right column ka hissa hai (pehle absolute top-28).
+function ZonePanel({ zones }: { zones: NonNullable<Snap["zones"]> }) {
+  return (
+    <div className="pointer-events-none min-w-36 border border-line bg-bg/80 p-2 text-right backdrop-blur-md sb-zone">
+          <p className="font-display text-xs tracking-widest text-primary">
+            LANDING ZONES {zones.found}/{zones.total}
+          </p>
+          {zones.target ? (
+            <div className="mt-1 flex items-center justify-end gap-2">
+              <div>
+                <p className={zones.target.near ? "font-display text-sm uppercase text-[#4ade80]" : "font-display text-sm uppercase"}>
+                  {zones.target.name}
+                </p>
+                <p className="text-xs text-muted">
+                  {zones.target.inside ? "IN ZONE" : zones.target.kind.toUpperCase() + " · " + km(zones.target.dist)}
+                </p>
+              </div>
+              <svg
+                viewBox="0 0 24 24"
+                className={zones.target.near ? "size-7 text-[#4ade80]" : "size-7 text-primary"}
+                style={{ transform: "rotate(" + Math.round((zones.target.angle * 180) / Math.PI) + "deg)" }}
+              >
+                <path d="M12 3 L19 20 L12 16 L5 20 Z" fill="currentColor" />
+              </svg>
+            </div>
+          ) : (
+            <p className="mt-1 text-xs text-muted">No zone found yet</p>
+          )}
+          <p className="text-xs text-muted">Scan in {Math.ceil(zones.scanIn)}s · R</p>
+        </div>
+  );
+}
+
+function touchHint(): boolean {
+  return typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches === true;
 }
 
 function Tips({
@@ -1376,10 +1440,11 @@ function Waypoint({ engineRef, name }: { engineRef: React.RefObject<Spacebound |
     return () => cancelAnimationFrame(raf);
   }, [engineRef, name]);
   return (
-    <div ref={box} className="pointer-events-none absolute left-0 top-0 z-10 opacity-0">
+    <div ref={box} className="pointer-events-none absolute left-0 top-0 z-20 opacity-0">
       <div className="flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1">
         <span ref={arrow} className="block text-3xl leading-none text-accent">▲</span>
-        <span ref={ring} className="block size-9 rotate-45 border-2 border-accent" />
+        {/* minimap-v1: marker ship ke saamne bhi saaf dikhe (moti line, glow, halka pulse) */}
+        <span ref={ring} className="block size-10 rotate-45 border-[3px] border-accent bg-accent/15 shadow-[0_0_14px_rgba(232,137,58,0.9)] sb-wp-pulse" />
         <span ref={label} className="whitespace-nowrap border border-line bg-bg/80 px-2 py-0.5 font-display text-sm tracking-widest text-accent" />
       </div>
     </div>

@@ -1586,7 +1586,7 @@ export class Spacebound {
     if (this.input.held("KeyW") || this.input.held("ArrowUp")) throttle += 1;
     if (this.input.held("KeyS") || this.input.held("ArrowDown")) throttle -= 1;
     const touch = this.input.touch;
-    if (this.input.override === null) {
+    if (!this.input.hasOverride) {
       steer += -touch.x;
       throttle += touch.y;
     }
@@ -2166,7 +2166,7 @@ export class Spacebound {
     }
     if (this.input.held("ArrowUp") || this.input.touch.pitchUp) pitch += 1;
     if (this.input.held("ArrowDown") || this.input.touch.pitchDown) pitch -= 1;
-    if (this.input.override === null) {
+    if (!this.input.hasOverride) {
       if (this.input.touch.x < -0.25) steer += 1;
       if (this.input.touch.x > 0.25) steer -= 1;
     }
@@ -2194,9 +2194,9 @@ export class Spacebound {
     this.bank += (targetBank - this.bank) * Math.min(1, dt * 4);
     this.stabilizeFlight(rig, refUp, dt);
 
-    if (this.input.held("KeyW") || (this.input.override === null && this.input.touch.y > 0.3))
+    if (this.input.held("KeyW") || (!this.input.hasOverride && this.input.touch.y > 0.3))
       this.throttle = Math.min(1, this.throttle + dt * 0.9);
-    if (this.input.held("KeyS") || (this.input.override === null && this.input.touch.y < -0.3))
+    if (this.input.held("KeyS") || (!this.input.hasOverride && this.input.touch.y < -0.3))
       this.throttle = Math.max(0, this.throttle - dt * 1.6);
 
     const stats = this.stats();

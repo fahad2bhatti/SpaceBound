@@ -703,6 +703,12 @@ export class Spacebound {
       this.walker.z = resume.wz;
       this.walker.yaw = resume.yaw;
     } else {
+      // bugfix-v1: EVA ke beech Main menu → Continue: astronaut aur debris flight scene mein reh jate the.
+      // Airlock jaisa hi: EVA band karo aur contract ko "evaEnded" batao.
+      if (this.phase === "eva") {
+        this.cleanupEva();
+        this.contracts.handle({ type: "evaEnded" });
+      }
       this.fuel = resume.fuel;
       this.life = resume.life;
       this.pos().fromArray(resume.pos);
@@ -1088,7 +1094,8 @@ export class Spacebound {
       this.toast("Buy it before selecting it.");
       return;
     }
-    if (this.phase === "flight" || this.phase.startsWith("surface")) {
+    // bugfix-v1: EVA bhi space mein hai. Pehle "eva" yahan nahi tha, to Main menu → Garage se EVA ke beech ship badal jata tha.
+    if (this.phase === "flight" || this.phase === "eva" || this.phase.startsWith("surface")) {
       this.toast("Land at Northline before changing spacecraft.");
       return;
     }
@@ -1239,8 +1246,19 @@ export class Spacebound {
       this.toast("Refuel on the ground.");
       return;
     }
-    const price = refuelCost(missing, this.phase.startsWith("surface"));
+    const remote = this.phase.startsWith("surface");
+    const price = refuelCost(missing, remote);
     if (this.save.credits < price) {
+      // bugfix-v1: Northline par khali tank + paise nahi = game phans jati thi (Store ships bik bhi nahi sakte).
+      // Launch minimum (15%) ke liye paise na hon to 20% tak muft. Doosre planet par "Abort to Earth orbit" pehle se muft hai.
+      const min = Math.ceil(max * 0.2);
+      if (!remote && this.fuel < min && this.save.credits < refuelCost(max * 0.15 - this.fuel, false)) {
+        this.fuel = min;
+        this.toast("Emergency fuel: tanks filled to 20% free of charge.");
+        this.persist(true);
+        this.notifyNow = true;
+        return;
+      }
       this.toast(`Refuel costs ${price} credits.`);
       return;
     }

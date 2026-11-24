@@ -23,6 +23,8 @@ export class Input {
   private dragY = 0;
   private onPointerMove: (e: PointerEvent) => void;
   private activePointer = -1;
+  /** How far the current press has moved (px). Under 6 px counts as a tap / click. */
+  private pressMoved = 0;
   // free-cam-v1: separate look channel. Touch: 1 finger on the canvas = orbit, 2 fingers = pinch zoom.
   // Mouse: right button drag = orbit (left click still locks the pointer for steering), wheel = zoom.
   // The on-screen stick and buttons are DOM elements with their own pointer capture, so they never reach these.
@@ -217,6 +219,11 @@ export class Input {
   held(code: string): boolean {
     if (this.override) return this.override.has(code);
     return this.keys.has(code);
+  }
+
+  /** True while a scripted key set (setOverride) replaces the real keyboard. */
+  get hasOverride(): boolean {
+    return this.override !== null;
   }
 
   setOverride(codes: string[]): void {

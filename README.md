@@ -1,76 +1,94 @@
-# Waqt
+# SpaceBound: Beyond Earth
 
-Waqt is an Android app for accurate prayer times and a calm Azan, built with Flutter. Prayer times are calculated on your phone, your prayer history stays on your phone, and there are no accounts and no ads.
+A 3D space-shuttle game for Android. Walk the spaceport, pick a ship, launch, fly to Earth orbit, the Moon and the planets, land, explore on foot and fly home.
 
-Developed by **Fahad Apps** · Android only · Status: preparing for Google Play closed testing
+Developed by **Fahad Apps** · Android · Status: Google Play closed testing
 
 ## Features
 
-- **Prayer times** calculated on-device, with 6 calculation methods, Hanafi or Shafi Asr, and per-prayer minute adjustments
-- **Azan alarms** scheduled 30 days ahead, set again after a reboot or time zone change
-- **Azan screen** that opens over the lock screen, from the background, and after swiping the app from recents
-- **Vibration** that keeps going with the Azan even when the phone is on silent
-- **Reminders** after the Azan if the prayer is not ticked, with "I prayed", "Remind again" and 10/20/30 minute options
-- **Prayer log** with a month calendar and streaks
-- **Qibla compass** using the phone's sensors, pointing to true north
-- **Azan protection** check that shows which permissions are missing
-- **Delete all data** in Settings
-- Prayer Mode (app blocker) is planned and shown as "coming soon"
+- **Flight**: countdown and launch, throttle, RCS, pitch and steer, an on-screen destination marker and a solar-system map
+- **Places**: Earth orbit, Vesper Station, the Moon, Mars, and cloud-deck landings on Jupiter, Saturn, Uranus and Neptune. Flying too close to the Sun overheats the ship
+- **Landing**: 1 to 3 stars per landing, a Perfect Landing bonus, and best scores saved per planet and landing zone
+- **On foot**: explore planet surfaces with an oxygen limit
+- **Missions and contracts**: a campaign, rescue contracts (crew oxygen timer) and EVA station repairs (repair points, debris)
+- **Ships**: 12 ships to buy, unlock and upgrade, plus paints and stickers (cosmetic only)
+- **Store**: Nova currency packs and one-time deals (Starter Pack, Remove Ads, Commander Bundle) through Google Play Billing, with restore after reinstall
+- **Ads (AdMob)**: a banner on the main menu only, an interstitial at most every second mission end (3 minutes apart), and optional reward videos. Remove Ads turns off the banner and interstitials
+- **Age gate**: players under 13 get no ads and no Store. Teen players get teen-rated ads only. EEA players see a consent form
+- **Phone friendly**: landscape fullscreen, touch controls, hardware Back button, and low graphics by default on touch screens
 
 ## Tech stack
 
-- Flutter and Dart, feature-first folders (`lib/features/<feature>/{data,providers,presentation}`)
-- Riverpod for state, GoRouter for navigation
-- `adhan_dart` for prayer time calculation
-- `flutter_local_notifications` and native Kotlin code for exact alarms and the lock-screen Azan
-- Firebase Crashlytics for crash reports (release builds only)
+- Vite 8, React 19, TypeScript, Tailwind 4
+- three.js, with all models built in code (no external 3D assets)
+- Capacitor 8 for Android (`com.fahadapps.spacebound`)
+- `@capgo/native-purchases` (Play Billing Library 9) and `@capacitor-community/admob`
+- The save is kept on the phone in `localStorage`. No server, no login
 
 ## Getting started
 
-Requirements: Flutter (Dart `^3.12`), Android SDK, a device or emulator.
+Requirements: Node 22, Android Studio with the Android SDK, and a phone with USB debugging (or an emulator).
 
 ```bash
-git clone https://github.com/fahad2bhatti/waqt.git
-cd waqt
-flutter pub get
-flutter run
+git clone https://github.com/fahad2bhatti/SpaceBound.git
+cd SpaceBound
+npm install
+npm run dev                         # play in the browser (Store runs in test mode, no ads)
+npm run build && npx cap sync android
+npx cap run android                 # install on the phone
 ```
 
-Firebase config (`android/app/google-services.json`) is not in the repository. Create your own Firebase project, add an Android app with the package name `com.fahadapps.waqt`, and place its `google-services.json` in `android/app/`.
+Uninstalling the app deletes the local save. Paid one-time items come back with **Restore purchases** in the Store.
 
-### Release build
+## Release build (AAB for Google Play)
 
-Create an upload keystore, then add `android/key.properties` (this file and `*.jks` are git-ignored):
+1. Create an upload key and `android/keystore.properties` (this file and `*.jks` are git-ignored):
 
-```properties
-storeFile=/absolute/path/to/waqt-upload.jks
-storePassword=...
-keyAlias=upload
-keyPassword=...
-```
+   ```properties
+   storeFile=spacebound-upload.jks
+   storePassword=...
+   keyAlias=upload
+   keyPassword=...
+   ```
 
-```bash
-flutter build appbundle --release
-```
+2. Raise `versionCode` (and `versionName` if you want) in `android/app/build.gradle`.
+3. Build:
+
+   ```bash
+   VITE_ADS_REAL=1 npm run android:aab
+   ```
+
+   `scripts/check-release.mjs` stops the build if test billing is on, real ads are off, or the upload key is missing. The AAB is at `android/app/build/outputs/bundle/release/app-release.aab`.
 
 ## Tests
 
 ```bash
-flutter analyze
-flutter test
+npx tsx scripts/contracts.test.mts
+npx tsx scripts/landing.test.mts
+npx tsx scripts/looks.test.mts
+npx tsx scripts/missions.test.mts
+npx tsx scripts/welcome.test.mts
+npx tsc --noEmit
 ```
 
-## Documentation
+## Code map
 
-- [Roadmap](docs/ROADMAP.md)
-- [Project documentation](docs/DOCUMENTATION.md)
-- [Terms & Conditions](docs/terms.md)
-- [Privacy Policy](docs/privacy.md)
+- `src/game/engine.ts`: the game loop, screens, flight physics, purchases and ads flow
+- `src/game/catalog.ts`, `planets.ts`, `landing.ts`: ships, destinations, landing zones and scoring
+- `src/game/contracts/`: contract data and objectives
+- `src/game/store.ts`, `billing.ts`, `ads.ts`: Store products, Google Play Billing, AdMob
+- `src/game/save.ts`: save format and migration
+- `src/components/spacebound/`: the React UI
+- `docs/`: privacy policy, terms and support page (GitHub Pages)
+- `HANDOFF.md`: detailed developer notes
 
-## License
+## Legal
 
-Copyright (c) 2026 Fahad Apps. All rights reserved. See [LICENSE](LICENSE). Third-party packages remain under their own licenses.
+- [Privacy Policy](https://fahad2bhatti.github.io/SpaceBound/privacy.html)
+- [Terms of Service](https://fahad2bhatti.github.io/SpaceBound/terms.html)
+
+Copyright (c) 2026 Fahad Apps. All rights reserved. Third-party packages remain under their own licenses.
 
 ## Contact
 
-Fahad Apps, Faisalabad, Pakistan · fahadsaeed2622@gmail.com
+Fahad Apps · fahadsaeed2622@gmail.com

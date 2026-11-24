@@ -1017,7 +1017,7 @@ function Hud({
       </div>
       {flight && snap.freeCam && (
         <p className="pointer-events-none absolute left-1/2 top-[8.5rem] -translate-x-1/2 whitespace-nowrap font-display text-xs tracking-widest text-muted">
-          FREE CAM
+          FREE CAM{touchHint() ? " · DOUBLE-TAP TO RESET" : ""}
         </p>
       )}
       {snap.countdown !== null && (
@@ -1427,7 +1427,12 @@ function Waypoint({ engineRef, name }: { engineRef: React.RefObject<Spacebound |
         return;
       }
       const pos = placeWaypoint(p, window.innerWidth, window.innerHeight);
-      el.style.opacity = "1";
+      // waypoint-v2: beech mein (ship ke upar) ho to halka aur bina label, taake view na chhupe. Distance mini-map par hai.
+      const W = window.innerWidth;
+      const H = window.innerHeight;
+      const mid = !pos.off && Math.hypot(pos.x - W / 2, pos.y - H / 2) < Math.min(W, H) * 0.22;
+      el.style.opacity = mid ? "0.5" : "1";
+      if (label.current) label.current.style.display = mid ? "none" : "block";
       el.style.transform = "translate(" + Math.round(pos.x) + "px, " + Math.round(pos.y) + "px)";
       if (arrow.current) {
         arrow.current.style.display = pos.off ? "block" : "none";
@@ -1444,8 +1449,8 @@ function Waypoint({ engineRef, name }: { engineRef: React.RefObject<Spacebound |
       <div className="flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1">
         <span ref={arrow} className="block text-3xl leading-none text-accent">▲</span>
         {/* minimap-v1: marker ship ke saamne bhi saaf dikhe (moti line, glow, halka pulse) */}
-        <span ref={ring} className="block size-10 rotate-45 border-[3px] border-accent bg-accent/15 shadow-[0_0_14px_rgba(232,137,58,0.9)] sb-wp-pulse" />
-        <span ref={label} className="whitespace-nowrap border border-line bg-bg/80 px-2 py-0.5 font-display text-sm tracking-widest text-accent" />
+        <span ref={ring} className="block size-6 rotate-45 border-2 border-accent shadow-[0_0_8px_rgba(232,137,58,0.8)] sb-wp-pulse" />
+        <span ref={label} className="whitespace-nowrap bg-bg/60 px-1.5 font-display text-xs tracking-widest text-accent" />
       </div>
     </div>
   );

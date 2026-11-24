@@ -229,6 +229,8 @@ const SUN_WALL = SUN_RADIUS * 1.5;
 const FLIGHT_PITCH_LIMIT = THREE.MathUtils.degToRad(75);
 // arcade-flight-v1: ship ki raftar ki simt naak (nose) ki taraf mudti hai, is rate se (1/s). Zyada = tez mudna.
 const ALIGN_RATE = 1.8;
+// freecam-hold-v1: ungli hatane ke baad camera itne second wahin rehti hai, phir dheere se ship ke peeche wapas.
+const FREE_CAM_HOLD = 8;
 // autopilot-v1: naak ko target ki taraf mod'ne ki raftar (1/s), aur brake ki taqat.
 const AP_TURN = 2.2;
 const AP_BRAKE = 1.2;
@@ -443,7 +445,9 @@ export class Spacebound {
   private fcPitch = 0;
   private fcZoom = 1;
   private fcHold = 0;
-  private look = { dx: 0, dy: 0, zoom: 0, active: false };
+  private look = { dx: 0, dy: 0, zoom: 0, active: false, reset: false };
+  /** freecam-hold-v1: double tap se camera tezi se wapas peeche aa rahi hai. */
+  private fcSnap = false;
   private frameWheel = 0;
   // planet-zones-v1
   private zoneNs = new Map<BodyId, THREE.Vector3[]>();
@@ -2315,7 +2319,7 @@ export class Spacebound {
     this.fcHold = 0;
     this.steerSm = 0;
     this.pitchSm = 0;
-    this.look = { dx: 0, dy: 0, zoom: 0, active: false };
+    this.look = { dx: 0, dy: 0, zoom: 0, active: false, reset: false };
     this.input.resetLook();
   }
 
@@ -2392,15 +2396,18 @@ export class Spacebound {
       // playtest-v1: phone par Esc key nahi hoti
       this.toast(
         matchMedia("(pointer: coarse)").matches
-          ? "Beyond certified range. Thrust cut. Pause → Abort to Earth orbit."
-          : "Beyond certified range. Thrust cut. Esc → abort to Earth orbit.",
+          ? "Beyond certified range. Turn back towards Earth to get thrust, or Pause → Abort to Earth orbit."
+          : "Beyond certified range. Turn back towards Earth to get thrust, or Esc → abort to Earth orbit.",
       );
     }
     if (!locked) this.rangeLockToast = false;
+    // rangelock-v1: range lock mein bhi Earth ki taraf (wapas) thrust chalta hai. Sirf aur door jana band hai.
+    this.forward(rig, this.v1);
+    const pushOut = locked && this.v1.dot(this.flightPos) > 0;
     const rcs = this.input.held("Space") || this.input.touch.rcsUp;
     const rcsDn = this.input.held("ShiftLeft") || this.input.held("ShiftRight") || this.input.touch.rcsDown;
     let burn = 0;
-    if (!locked && this.fuel > 0 && this.throttle > 0.02) burn += stats.burn * this.throttle * dt;
+    if (!pushOut && this.fuel > 0 && this.throttle > 0.02) burn += stats.burn * this.throttle * dt;
     if (this.fuel > 0 && (rcs || rcsDn)) burn += stats.burn * 0.35 * dt;
     this.fuel = Math.max(0, this.fuel - burn);
     if (this.fuel <= 0) this.throttle = 0;
@@ -2408,12 +2415,12 @@ export class Spacebound {
     this.forward(rig, this.v1);
     const cap = this.speedCap();
     const speed = this.flightV.length();
-    if (!locked && this.fuel > 0 && this.throttle > 0.02 && speed < cap) {
+    if (!pushOut && this.fuel > 0 && this.throttle > 0.02 && speed < cap) {
       this.flightV.addScaledVector(this.v1, stats.accel * this.throttle * dt);
     }
     // arcade-flight-v1: ship wahi jati hai jidhar naak hai. Raftar wahi rehti hai, sirf simt dheere dheere naak ki taraf mudti hai.
     // (Pehle turn karne par ship purani simt mein seedhi chalti rehti thi.) Range lock ya khali tank par yeh band.
-    if (!locked && this.fuel > 0) {
+    if (!pushOut && this.fuel > 0) {
       const sp = this.flightV.length();
       if (sp > 0.05) {
         const k = 1 - Math.exp(-ALIGN_RATE * dt);
@@ -2454,12 +2461,12 @@ export class Spacebound {
     this.resolveGround(body);
     rig.group.position.copy(this.flightPos);
     rig.group.quaternion.normalize();
-    this.glow(rig, locked ? 0 : this.throttle);
+    this.glow(rig, pushOut ? 0 : this.throttle);
     this.heat.position.copy(this.flightPos);
     // vfx-polish-v1: thruster lakeer, re-entry plasma, zameen ki dhool, speed dust, sitaron ki jhilmil
     {
       const L = Math.max(2, rig.half.z * rig.group.scale.x * 2);
-      const thr = locked ? 0 : this.throttle;
+      const thr = pushOut ? 0 : this.throttle;
       this.exhaust(rig, this.vp);
       this.forward(rig, this.vb).negate();
       this.vfx.thrust(this.vp, this.vb, this.flightV, thr, L, dt);
@@ -2483,7 +2490,7 @@ export class Spacebound {
       }
     }
     if (alt < 8 && this.throttle > 0.35 && body === "earth") this.burst(rig, 6);
-    this.audio.setThrottle(locked ? 0 : this.throttle);
+    this.audio.setThrottle(pushOut ? 0 : this.throttle);
     this.updateSunHazard(dt);
     this.life -= dt + this.sunHeat * 60 * dt;
     if (this.life <= 0) {
@@ -2895,15 +2902,23 @@ export class Spacebound {
     if (L.zoom) this.fcZoom *= Math.exp(-L.zoom * 0.006);
     if (this.frameWheel) this.fcZoom *= Math.exp(this.frameWheel * 0.0012);
     this.fcZoom = THREE.MathUtils.clamp(this.fcZoom, 0.5, 2.4);
-    if (L.active) this.fcHold = 0;
-    else if (this.frameWheel) this.fcHold = 1.2;
+    // freecam-hold-v1: pehle ungli hat'te hi camera foran wapas aa jati thi. Ab FREE_CAM_HOLD second ruk'ti hai,
+    // double tap par foran wapas, aur "Camera lock" setting mein kabhi khud wapas nahi aati.
+    if (L.reset) this.fcSnap = true;
+    if (L.active && (L.dx || L.dy || L.zoom)) this.fcSnap = false;
+    if (L.active) this.fcHold = FREE_CAM_HOLD;
+    else if (this.frameWheel) this.fcHold = FREE_CAM_HOLD;
     else this.fcHold = Math.max(0, this.fcHold - dt);
-    if (!L.active && this.fcHold <= 0 && !set.camLock) {
+    if (!L.active && (this.fcSnap || (this.fcHold <= 0 && !set.camLock))) {
       this.fcYaw = THREE.MathUtils.euclideanModulo(this.fcYaw + Math.PI, Math.PI * 2) - Math.PI;
-      const k = 1 - Math.exp(-dt / 0.2);
+      const k = 1 - Math.exp(-dt / (this.fcSnap ? 0.15 : 0.7));
       this.fcYaw -= this.fcYaw * k;
       this.fcPitch -= this.fcPitch * k;
       this.fcZoom += (1 - this.fcZoom) * k;
+      if (Math.abs(this.fcYaw) + Math.abs(this.fcPitch) + Math.abs(this.fcZoom - 1) < 0.01) {
+        this.fcSnap = false;
+        this.fcHold = 0;
+      }
     }
   }
 

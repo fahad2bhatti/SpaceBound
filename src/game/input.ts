@@ -38,10 +38,26 @@ export class Input {
     const p = [...this.lookTouches.values()];
     return p.length < 2 ? 0 : Math.hypot(p[0]!.x - p[1]!.x, p[0]!.y - p[1]!.y);
   }
+  // freecam-hold-v1: double tap on the 3D view = camera back behind the ship
+  private lastTap = 0;
+  private lastTapX = 0;
+  private lastTapY = 0;
+  private lookReset = false;
   private onLookDown = (e: PointerEvent): void => {
     if (e.pointerType === "mouse") {
       if (e.button === 2) this.lookRight = true;
       return;
+    }
+    if (this.lookTouches.size === 0) {
+      const now = performance.now();
+      if (now - this.lastTap < 320 && Math.hypot(e.clientX - this.lastTapX, e.clientY - this.lastTapY) < 48) {
+        this.lookReset = true;
+        this.lastTap = 0;
+      } else {
+        this.lastTap = now;
+        this.lastTapX = e.clientX;
+        this.lastTapY = e.clientY;
+      }
     }
     this.lookTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (this.lookTouches.size === 2) this.lookPinch = this.pinchDist();
@@ -277,8 +293,15 @@ export class Input {
   }
 
   /** free-cam-v1: look drag (px), pinch (px, + = fingers apart) and whether a look pointer is down. */
-  consumeLook(): { dx: number; dy: number; zoom: number; active: boolean } {
-    const r = { dx: this.lookDX, dy: this.lookDY, zoom: this.lookZoom, active: this.lookRight || this.lookTouches.size > 0 };
+  consumeLook(): { dx: number; dy: number; zoom: number; active: boolean; reset: boolean } {
+    const r = {
+      dx: this.lookDX,
+      dy: this.lookDY,
+      zoom: this.lookZoom,
+      active: this.lookRight || this.lookTouches.size > 0,
+      reset: this.lookReset,
+    };
+    this.lookReset = false;
     this.lookDX = 0;
     this.lookDY = 0;
     this.lookZoom = 0;

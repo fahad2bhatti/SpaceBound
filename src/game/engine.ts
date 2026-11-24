@@ -2106,6 +2106,10 @@ export class Spacebound {
     if (body === "earth") this.tryEvent("first-launch");
     if (body === "moon" && this.save.flags.moonLanded) this.save.flags.returning = true;
     if (body === "mars") this.save.flags.returning = true;
+    // bugfix-v1: jis planet se uth rahe ho agar wahi nav target tha, to diamond wapas usi planet ki taraf le jata tha
+    // (gas giant par cloud cushion phir se land kara deta tha). Ab target khud Earth ho jata hai.
+    const homeNav = body !== "earth" && DESTS[this.save.destination].body === body;
+    if (homeNav) this.save.destination = "earth";
     const rig = this.ensureFlightRig();
     const origin = this.bodyPos.get(body)!;
     // land-anywhere-v1: lift off from the exact spot we touched down on; with no landing this session, the zone / pad.
@@ -2126,7 +2130,11 @@ export class Spacebound {
     this.attachPuffs(this.flightScene);
     this.applyHull();
     this.flash = 0.8;
-    this.toast(body === "earth" ? "Tower clear. Pitch forward with ↓ and aim the nav cue." : "Ascent. Point at the nav diamond.");
+    this.toast(
+      body === "earth"
+        ? "Tower clear. Pitch forward with ↓ and aim the nav cue."
+        : (homeNav ? "Nav target: Earth. " : "") + "Climb clear of " + BODIES[body].name + " first, then turn to the nav diamond.",
+    );
     this.notifyNow = true;
   }
 
